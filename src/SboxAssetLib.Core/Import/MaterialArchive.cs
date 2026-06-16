@@ -24,20 +24,21 @@ public static class MaterialArchive
 
         var result = new Dictionary<MapType, string>();
 
-        // Non-normal channels: prefer the cleanest (shortest) file name; skip packed maps.
+        // Non-normal channels: prefer editor-safe files, then the cleanest file name; skip packed maps.
         foreach (var f in images)
         {
             var map = MapClassifier.Classify(Path.GetFileNameWithoutExtension(f));
             if (map is MapType.None or MapType.Arm or MapType.Normal)
                 continue;
-            if (!result.TryGetValue(map, out var existing)
-                || Path.GetFileName(f).Length < Path.GetFileName(existing).Length)
+            if (!result.TryGetValue(map, out var existing) || IsBetter(f, existing))
                 result[map] = f;
         }
 
         // Normal: choose the variant that matches the requested convention.
         var normals = images
             .Where(f => MapClassifier.Classify(Path.GetFileNameWithoutExtension(f)) == MapType.Normal)
+            .OrderBy(f => MaterialTextureNormalizer.IsEditorSafe(f) ? 0 : 1)
+            .ThenBy(f => Path.GetFileName(f).Length)
             .ToList();
         if (normals.Count > 0)
         {
@@ -52,5 +53,13 @@ public static class MaterialArchive
         return result;
 
         static string Name(string f) => Path.GetFileNameWithoutExtension(f).ToLowerInvariant();
+        static bool IsBetter(string candidate, string existing)
+        {
+            var candidateSafe = MaterialTextureNormalizer.IsEditorSafe(candidate);
+            var existingSafe = MaterialTextureNormalizer.IsEditorSafe(existing);
+            if (candidateSafe != existingSafe)
+                return candidateSafe;
+            return Path.GetFileName(candidate).Length < Path.GetFileName(existing).Length;
+        }
     }
 }

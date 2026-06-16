@@ -104,9 +104,9 @@ public sealed class AssetInstaller
         FormatPrefs prefs, List<string> written, CancellationToken ct)
     {
         // Direct per-channel files (e.g. Poly Haven).
-        var maps = fetched
-            .Where(x => x.File.Role == DownloadRole.MapTexture)
-            .ToDictionary(x => x.File.Map, x => Rel(relDir, x.File.FileName));
+        var maps = new Dictionary<MapType, string>();
+        foreach (var mapFile in PickMapSources(fetched.Where(x => x.File.Role == DownloadRole.MapTexture)))
+            maps[GetMap(mapFile)] = NormalizeFetchedMap(mapFile, relDir, destDir, written);
 
         // Archives (e.g. ambientCG zips): extract, classify, and rename the chosen map per channel.
         foreach (var archive in fetched.Where(x => x.File.Role == DownloadRole.Archive))
@@ -114,10 +114,11 @@ public sealed class AssetInstaller
             var extractDir = Path.Combine(destDir, "_extract");
             foreach (var (map, src) in MaterialArchive.ExtractMaps(archive.LocalPath, extractDir, prefs.Normal))
             {
-                var destName = $"{id}_{MapClassifier.Suffix(map)}{Path.GetExtension(src).ToLowerInvariant()}";
-                File.Copy(src, Path.Combine(destDir, destName), overwrite: true);
-                maps[map] = Rel(relDir, destName);
-                written.Add(Rel(relDir, destName));
+                var normalized = MaterialTextureNormalizer.NormalizeMapFile(
+                    src, Path.Combine(destDir, $"{id}_{MapClassifier.Suffix(map)}"), map);
+                var rel = RelFromPath(relDir, destDir, normalized);
+                maps[map] = rel;
+                AddWritten(written, rel);
             }
             Directory.Delete(extractDir, recursive: true);
             File.Delete(archive.LocalPath);
@@ -140,29 +141,85 @@ public sealed class AssetInstaller
 
         // Build a material from the mesh's dependency textures so it isn't grey on import.
         var depMaps = new Dictionary<MapType, string>();
-        foreach (var dep in fetched.Where(x => x.File.Role == DownloadRole.Dependency))
-        {
-            var map = MapClassifier.Classify(Path.GetFileNameWithoutExtension(dep.File.FileName));
-            if (map is MapType.None or MapType.Arm || depMaps.ContainsKey(map))
-                continue;
-            depMaps[map] = Rel(relDir, dep.File.FileName);
-        }
+        foreach (var dep in PickMapSources(fetched.Where(x => x.File.Role == DownloadRole.Dependency)))
+            depMaps[GetMap(dep)] = NormalizeFetchedMap(dep, relDir, destDir, written);
 
+        string? materialRel = null;
         if (depMaps.Count > 0)
         {
             var vmat = VmatWriter.Write(depMaps, prefs.Normal);
             await File.WriteAllTextAsync(Path.Combine(destDir, $"{id}.vmat"), vmat, ct).ConfigureAwait(false);
-            written.Add($"{relDir}/{id}.vmat");
+            materialRel = $"{relDir}/{id}.vmat";
+            AddWritten(written, materialRel);
         }
 
-        var vmdl = VmdlWriter.Write(id, meshRel);
+        var vmdl = VmdlWriter.Write(id, meshRel, materialRel, prefs.ModelImportScale);
         await File.WriteAllTextAsync(Path.Combine(destDir, $"{id}.vmdl"), vmdl, ct).ConfigureAwait(false);
         var primary = $"{relDir}/{id}.vmdl";
-        written.Add(primary);
+        AddWritten(written, primary);
         return primary;
     }
 
     private static string Rel(string relDir, string fileName) => $"{relDir}/{fileName.Replace('\\', '/')}";
+
+    private static IReadOnlyList<FetchedFile> PickMapSources(IEnumerable<FetchedFile> files)
+    {
+        var selected = new Dictionary<MapType, FetchedFile>();
+        foreach (var file in files)
+        {
+            var map = GetMap(file);
+            if (map is MapType.None or MapType.Arm)
+                continue;
+            if (!selected.TryGetValue(map, out var existing) || IsBetterMapSource(file, existing))
+                selected[map] = file;
+        }
+        return selected.Values.ToList();
+    }
+
+    private static bool IsBetterMapSource(FetchedFile candidate, FetchedFile existing)
+    {
+        var candidateSafe = MaterialTextureNormalizer.IsEditorSafe(candidate.LocalPath);
+        var existingSafe = MaterialTextureNormalizer.IsEditorSafe(existing.LocalPath);
+        if (candidateSafe != existingSafe)
+            return candidateSafe;
+        return Path.GetFileName(candidate.LocalPath).Length < Path.GetFileName(existing.LocalPath).Length;
+    }
+
+    private static string NormalizeFetchedMap(FetchedFile file, string relDir, string destDir, List<string> written)
+    {
+        var map = GetMap(file);
+        var sourceRel = RelFromPath(relDir, destDir, file.LocalPath);
+        var destination = Path.Combine(
+            Path.GetDirectoryName(file.LocalPath)!,
+            Path.GetFileNameWithoutExtension(file.LocalPath));
+        var normalized = MaterialTextureNormalizer.NormalizeMapFile(file.LocalPath, destination, map);
+        var normalizedRel = RelFromPath(relDir, destDir, normalized);
+
+        if (!normalizedRel.Equals(sourceRel, StringComparison.Ordinal))
+        {
+            written.Remove(sourceRel);
+            AddWritten(written, normalizedRel);
+            File.Delete(file.LocalPath);
+        }
+
+        return normalizedRel;
+    }
+
+    private static MapType GetMap(FetchedFile file) => file.File.Map != MapType.None
+        ? file.File.Map
+        : MapClassifier.Classify(Path.GetFileNameWithoutExtension(file.File.FileName));
+
+    private static string RelFromPath(string relDir, string destDir, string path)
+    {
+        var rel = Path.GetRelativePath(destDir, path).Replace('\\', '/');
+        return Rel(relDir, rel);
+    }
+
+    private static void AddWritten(List<string> written, string rel)
+    {
+        if (!written.Contains(rel, StringComparer.Ordinal))
+            written.Add(rel);
+    }
 }
 
 // ---- Library manifest -----------------------------------------------------

@@ -13,6 +13,7 @@ public sealed class AppSettings
     public string DefaultResolution { get; set; } = "2k";
     public string DefaultImageFormat { get; set; } = "png";
     public string NormalConvention { get; set; } = nameof(Core.Model.NormalConvention.OpenGl);
+    public double ModelImportScale { get; set; } = FormatPrefs.DefaultModelImportScale;
     public string? BlenderPath { get; set; }
     public string UserAgent { get; set; } = "sbox-asset-lib/0.1 (+https://github.com/sbox-asset-lib)";
 
@@ -30,6 +31,7 @@ public sealed class AppSettings
             ? ["jpg", "png"]
             : ["png", "jpg"],
         Normal = Normal,
+        ModelImportScale = ModelImportScale,
     };
 
     // ---- persistence ----

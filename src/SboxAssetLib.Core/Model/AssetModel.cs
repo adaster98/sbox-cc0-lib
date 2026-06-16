@@ -123,6 +123,8 @@ public sealed record SearchPage
 /// <summary>User preferences that influence which concrete files get resolved.</summary>
 public sealed record FormatPrefs
 {
+    public const double DefaultModelImportScale = 0.3937;
+
     /// <summary>Preferred image formats in priority order (first available wins).</summary>
     public IReadOnlyList<string> ImageFormats { get; init; } = ["png", "jpg"];
 
@@ -130,6 +132,9 @@ public sealed record FormatPrefs
     public IReadOnlyList<string> ModelFormats { get; init; } = ["fbx", "gltf", "glb"];
 
     public NormalConvention Normal { get; init; } = NormalConvention.OpenGl;
+
+    /// <summary>Global ModelDoc scale for centimeter-authored sources in inch-based s&amp;box units.</summary>
+    public double ModelImportScale { get; init; } = DefaultModelImportScale;
 
     public static FormatPrefs Default { get; } = new();
 }
