@@ -1,0 +1,12 @@
+{
+  "Title": "s&box Asset Library Bridge",
+  "Type": "library",
+  "Org": "local",
+  "Ident": "sbox_asset_lib_bridge",
+  "Schema": 1,
+  "IncludeSourceFiles": true,
+  "HasAssets": false,
+  "Metadata": {
+    "Description": "Editor-side bridge for the standalone s&box Asset Library app. Advertises the open project and imports/spawns downloaded CC0 assets."
+  }
+}

@@ -1,0 +1,22 @@
+# .NET build output
+bin/
+obj/
+[Dd]ebug/
+[Rr]elease/
+*.user
+
+# Rider / VS
+.idea/
+.vs/
+
+# Avalonia / publish
+publish/
+*.binlog
+
+# s&box compiled output (if the plugin is built inside a project)
+.sbox/
+*_c
+
+# OS
+.DS_Store
+Thumbs.db
