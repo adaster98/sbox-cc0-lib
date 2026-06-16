@@ -3,15 +3,24 @@ bin/
 obj/
 [Dd]ebug/
 [Rr]elease/
+artifacts/
+TestResults/
 *.user
 
 # Rider / VS
 .idea/
 .vs/
+.claude/
+CLAUDE.md
 
 # Avalonia / publish
 publish/
 *.binlog
+*.trx
+*.coverage
+*.dll
+*.exe
+*.pdb
 
 # s&box compiled output (if the plugin is built inside a project)
 .sbox/
