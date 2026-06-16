@@ -1,8 +1,8 @@
 {
-  "Title": "s&box Asset Library Bridge",
+  "Title": "s&box Asset Library",
   "Type": "library",
-  "Org": "local",
-  "Ident": "sbox_asset_lib_bridge",
+  "Org": "adaster98",
+  "Ident": "sbox-asset-lib",
   "Schema": 1,
   "IncludeSourceFiles": true,
   "HasAssets": false,
