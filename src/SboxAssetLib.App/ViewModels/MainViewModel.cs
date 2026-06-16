@@ -197,21 +197,27 @@ public partial class MainViewModel : ObservableObject
             Status = "Select an asset first.";
             return;
         }
-        var status = await _svc.Bridge.PingAsync();
-        if (status?.ContentPath is null)
+        var connection = await _svc.Bridge.PingAsync();
+        if (connection is null)
         {
             Status = "s&box plugin not connected — open s&box with the plugin installed.";
             return;
         }
+        if (!connection.CanReachContentPath)
+        {
+            Status = "s&box connected, but project path is not reachable from Linux: " + connection.ContentPathError;
+            return;
+        }
+
         var res = SelectedResolution ?? Selected.Detail.Resolutions.FirstOrDefault() ?? "2k";
         var installed = await InstallAsync(Selected.Detail, res,
-            new InstallOptions { AddonRoot = status.ContentPath, Prefs = _svc.Settings.Prefs, WriteManifest = false },
+            new InstallOptions { AddonRoot = connection.NativeContentPath!, Prefs = _svc.Settings.Prefs, WriteManifest = false },
             toLibrary: false);
         if (installed is null)
             return;
 
         Status = "Compiling in s&box…";
-        var result = await _svc.Bridge.ImportAsync(new ImportRequest
+        var result = await _svc.Bridge.ImportAsync(connection, new ImportRequest
         {
             RequestId = Guid.NewGuid().ToString("N"),
             PrimaryAsset = installed.PrimaryAsset,
@@ -219,7 +225,7 @@ public partial class MainViewModel : ObservableObject
             SpawnInScene = installed.Kind == AssetKind.Model,
         });
         Status = result.Ok
-            ? $"Imported {installed.Id} into s&box ({status.ProjectName})."
+            ? $"Imported {installed.Id} into s&box ({connection.Status.ProjectName})."
             : "s&box import failed: " + result.Error;
     }
 
@@ -277,8 +283,17 @@ public partial class MainViewModel : ObservableObject
     [RelayCommand]
     private async Task CheckBridgeAsync()
     {
-        var status = await _svc.Bridge.PingAsync();
-        BridgeConnected = status?.Ok == true;
-        BridgeStatus = BridgeConnected ? $"s&box: {status!.ProjectName ?? "connected"}" : "s&box: not connected";
+        var connection = await _svc.Bridge.PingAsync();
+        BridgeConnected = connection?.Status.Ok == true;
+        if (!BridgeConnected)
+        {
+            BridgeStatus = "s&box: not connected";
+            return;
+        }
+
+        var suffix = connection!.Kind == SboxBridgeConnectionKind.Proton ? " via Proton" : "";
+        BridgeStatus = connection.CanReachContentPath
+            ? $"s&box: {connection.Status.ProjectName ?? "connected"}{suffix}"
+            : $"s&box: path unreachable{suffix}";
     }
 }

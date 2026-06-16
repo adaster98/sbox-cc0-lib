@@ -16,7 +16,7 @@ public sealed class AppSettings
     public string? BlenderPath { get; set; }
     public string UserAgent { get; set; } = "sbox-asset-lib/0.1 (+https://github.com/sbox-asset-lib)";
 
-    /// <summary>Loopback port the s&amp;box editor plugin listens on.</summary>
+    /// <summary>Legacy setting from the pre-file-IPC bridge; kept so old settings files deserialize.</summary>
     public int BridgePort { get; set; } = 28310;
 
     [JsonIgnore]
