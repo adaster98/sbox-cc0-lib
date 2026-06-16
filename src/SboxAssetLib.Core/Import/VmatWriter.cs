@@ -24,6 +24,18 @@ public static class VmatWriter
         sb.AppendLine("\tshader \"shaders/complex.shader\"");
         sb.AppendLine();
 
+        var usesSpecular = maps.ContainsKey(MapType.Roughness)
+            || maps.ContainsKey(MapType.Metalness)
+            || maps.ContainsKey(MapType.Specular);
+
+        // ---- PBR feature toggles ----
+        if (usesSpecular)
+        {
+            sb.AppendLine("\t//---- PBR ----");
+            sb.AppendLine("\tF_SPECULAR 1");
+            sb.AppendLine();
+        }
+
         // ---- Colour ----
         sb.AppendLine("\t//---- Color ----");
         sb.AppendLine("\tg_flModelTintAmount \"1.000\"");
@@ -53,6 +65,7 @@ public static class VmatWriter
         {
             sb.AppendLine("\t//---- Metalness ----");
             sb.AppendLine("\tF_METALNESS_TEXTURE 1");
+            sb.AppendLine("\tg_flMetalness \"0.000\"");
             sb.AppendLine($"\tTextureMetalness \"{metal}\"");
             sb.AppendLine();
         }
@@ -71,6 +84,15 @@ public static class VmatWriter
         {
             sb.AppendLine("\t//---- Height ----");
             sb.AppendLine($"\tTextureHeight \"{height}\"");
+            sb.AppendLine();
+        }
+
+        // ---- Self Illum ----
+        if (maps.TryGetValue(MapType.Emission, out var emission))
+        {
+            sb.AppendLine("\t//---- Self Illum ----");
+            sb.AppendLine("\tF_SELF_ILLUM 1");
+            sb.AppendLine($"\tTextureSelfIllumMask \"{emission}\"");
             sb.AppendLine();
         }
 

@@ -23,7 +23,7 @@ public static class MapClassifier
         if (k == "ao" || k.Contains("ambient") || k.Contains("occlusion")) return MapType.AmbientOcclusion;
         if (k.Contains("disp") || k.Contains("height") || k.Contains("bump")) return MapType.Height;
         if (k.Contains("opacity") || k.Contains("alpha")) return MapType.Opacity;
-        if (k.Contains("emiss")) return MapType.Emission;
+        if (k.Contains("emiss") || k.Contains("selfillum")) return MapType.Emission;
         if (k.Contains("spec")) return MapType.Specular;
         return MapType.None;
     }
@@ -38,7 +38,7 @@ public static class MapClassifier
         MapType.Height => "height",
         MapType.Arm => "arm",
         MapType.Opacity => "opacity",
-        MapType.Emission => "emission",
+        MapType.Emission => "selfillum",
         MapType.Specular => "spec",
         _ => "tex",
     };
