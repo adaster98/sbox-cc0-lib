@@ -10,7 +10,7 @@ the editor is running through Steam Proton.
 ## What It Does
 
 - Browse and search CC0 assets by type.
-- Preview maps, categories, tags, and available resolutions before downloading.
+- Preview categories, tags, and available resolutions before downloading.
 - Import straight into the active s&box project through the editor bridge.
 - Save assets into a reusable library with generated Source 2 materials and models.
 
