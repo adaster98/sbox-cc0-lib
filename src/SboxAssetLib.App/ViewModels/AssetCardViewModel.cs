@@ -16,6 +16,8 @@ public partial class AssetCardViewModel : ObservableObject
     [ObservableProperty] private Bitmap? _thumbnail;
     [ObservableProperty] private MapType _maps;
     [ObservableProperty] private AssetDetail? _detail;
+    [ObservableProperty] private bool _installedInLibrary;
+    [ObservableProperty] private bool _installedInProject;
 
     public AssetCardViewModel(AssetSummary summary, IAssetProvider provider, AppServices svc)
     {

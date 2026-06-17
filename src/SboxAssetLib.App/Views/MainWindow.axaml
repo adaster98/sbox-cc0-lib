@@ -47,6 +47,16 @@
             <Setter Property="CornerRadius" Value="6" />
             <Setter Property="Background" Value="#1E1E1E" />
         </Style>
+        <!-- Install-status border: green = in reusable library, blue = in active s&box project.
+             Project is declared after library so it wins when an asset is in both. -->
+        <Style Selector="Border.card.installed-library">
+            <Setter Property="BorderBrush" Value="#2E7D32" />
+            <Setter Property="BorderThickness" Value="2" />
+        </Style>
+        <Style Selector="Border.card.installed-project">
+            <Setter Property="BorderBrush" Value="#007ACC" />
+            <Setter Property="BorderThickness" Value="2" />
+        </Style>
         <!-- Remove the ListBoxItem container chrome/padding and let it stretch so cards fill the cell. -->
         <Style Selector="ListBox.gallery ListBoxItem">
             <Setter Property="Padding" Value="0" />
@@ -101,7 +111,9 @@
                     </ListBox.ItemsPanel>
                     <ListBox.ItemTemplate>
                         <DataTemplate x:DataType="vm:AssetCardViewModel">
-                            <Border Classes="card" ClipToBounds="True">
+                            <Border Classes="card" ClipToBounds="True"
+                                    Classes.installed-library="{Binding InstalledInLibrary}"
+                                    Classes.installed-project="{Binding InstalledInProject}">
                                 <StackPanel>
                                     <Border CornerRadius="6,6,0,0" ClipToBounds="True" Height="160" Background="#111">
                                         <Image Source="{Binding Thumbnail}" Stretch="Uniform"

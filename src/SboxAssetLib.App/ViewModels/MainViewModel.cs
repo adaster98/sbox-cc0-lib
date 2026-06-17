@@ -21,6 +21,13 @@ public partial class MainViewModel : ObservableObject
     // can't backfill stale cards (or flip IsBusy) after the results have been cleared.
     private CancellationTokenSource? _searchCts;
 
+    // Last known bridge connection, kept so we can locate the project's library.json for the
+    // "installed in project" (blue) border without re-pinging.
+    private SboxBridgeConnection? _lastConnection;
+    // (Provider, Id) of every asset recorded in the library / project manifests.
+    private readonly HashSet<(string Provider, string Id)> _libraryInstalled = [];
+    private readonly HashSet<(string Provider, string Id)> _projectInstalled = [];
+
     [ObservableProperty] private bool _hasMore;
     [ObservableProperty] private IAssetProvider _selectedProvider;
     // Nullable: when the Kind list is rebuilt the ComboBox transiently has no selection, and a
@@ -44,6 +51,7 @@ public partial class MainViewModel : ObservableObject
         _libraryPath = svc.Settings.LibraryPath;
         RebuildKinds();
         _ = CheckBridgeAsync();
+        _ = ReloadLibraryIndexAsync();
 
         // Auto-populate on open (same as hitting Search with no term). An optional env var seeds the box.
         SearchText = Environment.GetEnvironmentVariable("SBOXLIB_DEMO_QUERY") ?? "";
@@ -99,6 +107,55 @@ public partial class MainViewModel : ObservableObject
     {
         _svc.Settings.LibraryPath = value;
         _svc.Settings.Save();
+        _ = ReloadLibraryIndexAsync();
+    }
+
+    // ---- installed-status index (drives the green=library / blue=project card borders) ----
+
+    private async Task ReloadLibraryIndexAsync()
+    {
+        _libraryInstalled.Clear();
+        if (!string.IsNullOrWhiteSpace(LibraryPath))
+        {
+            try
+            {
+                var manifest = await LibraryManifest.LoadAsync(LibraryPath);
+                foreach (var a in manifest.Assets)
+                    _libraryInstalled.Add((a.Provider, a.Id));
+            }
+            catch { /* no/locked manifest — leave empty */ }
+        }
+        RemarkCards();
+    }
+
+    private async Task ReloadProjectIndexAsync()
+    {
+        _projectInstalled.Clear();
+        var root = _lastConnection?.NativeContentPath;
+        if (!string.IsNullOrWhiteSpace(root))
+        {
+            try
+            {
+                var manifest = await LibraryManifest.LoadAsync(root);
+                foreach (var a in manifest.Assets)
+                    _projectInstalled.Add((a.Provider, a.Id));
+            }
+            catch { /* no/locked manifest — leave empty */ }
+        }
+        RemarkCards();
+    }
+
+    private void RemarkCards()
+    {
+        foreach (var card in Results)
+            MarkInstalled(card);
+    }
+
+    private void MarkInstalled(AssetCardViewModel card)
+    {
+        var key = (card.Summary.ProviderId, card.Summary.Id);
+        card.InstalledInLibrary = _libraryInstalled.Contains(key);
+        card.InstalledInProject = _projectInstalled.Contains(key);
     }
 
     [RelayCommand]
@@ -146,7 +203,11 @@ public partial class MainViewModel : ObservableObject
                 if (ct.IsCancellationRequested)
                     return;
                 foreach (var item in page.Items)
-                    Results.Add(new AssetCardViewModel(item, _svc.FindProvider(item.ProviderId), _svc));
+                {
+                    var card = new AssetCardViewModel(item, _svc.FindProvider(item.ProviderId), _svc);
+                    MarkInstalled(card);
+                    Results.Add(card);
+                }
                 total += page.Total ?? page.Items.Count;
                 hasMore |= page.HasMore;
                 HasMore = hasMore;
@@ -220,8 +281,14 @@ public partial class MainViewModel : ObservableObject
             return;
         }
         var res = SelectedResolution ?? Selected.Detail.Resolutions.FirstOrDefault() ?? "2k";
-        await InstallAsync(Selected.Detail, res,
+        var installed = await InstallAsync(Selected.Detail, res,
             new InstallOptions { AddonRoot = LibraryPath, Prefs = _svc.Settings.Prefs }, toLibrary: true);
+        if (installed is not null)
+        {
+            _libraryInstalled.Add((installed.ProviderId, installed.Id));
+            if (Selected is not null)
+                MarkInstalled(Selected);
+        }
     }
 
     [RelayCommand]
@@ -238,6 +305,7 @@ public partial class MainViewModel : ObservableObject
             Status = "s&box plugin not connected — open s&box with the plugin installed.";
             return;
         }
+        _lastConnection = connection;
         if (!connection.CanReachContentPath)
         {
             Status = "s&box connected, but project path is not reachable from Linux: " + connection.ContentPathError;
@@ -246,10 +314,14 @@ public partial class MainViewModel : ObservableObject
 
         var res = SelectedResolution ?? Selected.Detail.Resolutions.FirstOrDefault() ?? "2k";
         var installed = await InstallAsync(Selected.Detail, res,
-            new InstallOptions { AddonRoot = connection.NativeContentPath!, Prefs = _svc.Settings.Prefs, WriteManifest = false },
+            new InstallOptions { AddonRoot = connection.NativeContentPath!, Prefs = _svc.Settings.Prefs },
             toLibrary: false);
         if (installed is null)
             return;
+
+        _projectInstalled.Add((installed.ProviderId, installed.Id));
+        if (Selected is not null)
+            MarkInstalled(Selected);
 
         Status = "Compiling in s&box…";
         var result = await _svc.Bridge.ImportAsync(connection, new ImportRequest
@@ -319,6 +391,8 @@ public partial class MainViewModel : ObservableObject
     private async Task CheckBridgeAsync()
     {
         var connection = await _svc.Bridge.PingAsync();
+        _lastConnection = connection;
+        _ = ReloadProjectIndexAsync();
         BridgeConnected = connection?.Status.Ok == true;
         if (!BridgeConnected)
         {
