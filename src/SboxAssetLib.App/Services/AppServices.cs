@@ -3,7 +3,9 @@ using SboxAssetLib.Core.Download;
 using SboxAssetLib.Core.Import;
 using SboxAssetLib.Core.Providers;
 using SboxAssetLib.Core.Providers.AmbientCg;
+using SboxAssetLib.Core.Providers.Cc0Textures;
 using SboxAssetLib.Core.Providers.PolyHaven;
+using SboxAssetLib.Core.Providers.TextureCan;
 
 namespace SboxAssetLib.App.Services;
 
@@ -36,7 +38,13 @@ public sealed class AppServices : IDisposable
 
         // cgbookcase + sharetextures are deferred: their full-res downloads are click/wait-gated
         // (token-signed CDN / Google Drive) and need a headless-browser pass — see CgBookcaseProvider.
-        RealProviders = [new PolyHavenProvider(Http), new AmbientCgProvider(Http)];
+        RealProviders =
+        [
+            new PolyHavenProvider(Http),
+            new AmbientCgProvider(Http),
+            new Cc0TexturesProvider(Http),
+            new TextureCanProvider(Http),
+        ];
         Providers = [new CompositeProvider(RealProviders), .. RealProviders];
         Downloader = new DownloadManager(Http);
         Installer = new AssetInstaller(Downloader);

@@ -39,7 +39,11 @@ public partial class AssetCardViewModel : ObservableObject
     public bool IsModel => Summary.Kind == AssetKind.Model;
     public bool IsPbr => Maps.IsPbr();
     public IReadOnlyList<string> Badges => BuildBadges(Maps);
-    public IReadOnlyList<string> Tags => Summary.Tags;
+
+    // Prefer tags from the loaded detail: some providers (e.g. TextureCan) only carry tags on the
+    // detail page, so the search summary's list is empty until LoadDetailAsync runs.
+    public IReadOnlyList<string> Tags =>
+        Detail?.Summary.Tags is { Count: > 0 } detailTags ? detailTags : Summary.Tags;
 
     public string AuthorsText => Detail is { Authors.Count: > 0 } d ? "by " + string.Join(", ", d.Authors) : "";
     public string? SourceUrl => Detail?.SourceUrl;
@@ -56,6 +60,7 @@ public partial class AssetCardViewModel : ObservableObject
         OnPropertyChanged(nameof(AuthorsText));
         OnPropertyChanged(nameof(SourceUrl));
         OnPropertyChanged(nameof(LicenseText));
+        OnPropertyChanged(nameof(Tags));
     }
 
     private static readonly (MapType Map, string Label)[] BadgeDefs =

@@ -17,6 +17,9 @@ public partial class MainViewModel : ObservableObject
     private readonly AppServices _svc;
     private int _page;
     private bool _suppressSearch;
+    // Cancels an in-flight search when a newer one starts, so slow sources from a superseded search
+    // can't backfill stale cards (or flip IsBusy) after the results have been cleared.
+    private CancellationTokenSource? _searchCts;
 
     [ObservableProperty] private bool _hasMore;
     [ObservableProperty] private IAssetProvider _selectedProvider;
@@ -101,10 +104,12 @@ public partial class MainViewModel : ObservableObject
     [RelayCommand]
     private async Task SearchAsync()
     {
+        _searchCts?.Cancel();
+        _searchCts = new CancellationTokenSource();
         _page = 0;
         Results.Clear();
         Selected = null;
-        await RunSearchAsync();
+        await RunSearchAsync(_searchCts.Token);
     }
 
     [RelayCommand]
@@ -113,11 +118,14 @@ public partial class MainViewModel : ObservableObject
         if (!HasMore || IsBusy)
             return;
         _page++;
-        await RunSearchAsync();
+        // Same token as the active search: a newer SearchAsync supersedes both.
+        await RunSearchAsync(_searchCts?.Token ?? CancellationToken.None);
     }
 
-    private async Task RunSearchAsync()
+    private async Task RunSearchAsync(CancellationToken ct)
     {
+        var total = 0;
+        var hasMore = false;
         try
         {
             IsBusy = true;
@@ -130,12 +138,37 @@ public partial class MainViewModel : ObservableObject
                 Page = _page,
                 PageSize = 60,
             };
-            var page = await SelectedProvider.SearchAsync(query);
-            foreach (var item in page.Items)
-                Results.Add(new AssetCardViewModel(item, _svc.FindProvider(item.ProviderId), _svc));
-            HasMore = page.HasMore;
-            Status = $"{page.Total} result(s) in {SelectedProvider.DisplayName} · {SelectedKind}"
-                     + (HasMore ? " · load more" : "");
+
+            // Adds one page's cards and updates the running tally. Streaming providers deliver several
+            // pages (one per source, in completion order); plain providers deliver exactly one.
+            void AddPage(SearchPage page)
+            {
+                if (ct.IsCancellationRequested)
+                    return;
+                foreach (var item in page.Items)
+                    Results.Add(new AssetCardViewModel(item, _svc.FindProvider(item.ProviderId), _svc));
+                total += page.Total ?? page.Items.Count;
+                hasMore |= page.HasMore;
+                HasMore = hasMore;
+                Status = $"{total} result(s) in {SelectedProvider.DisplayName} · {SelectedKind}"
+                         + (hasMore ? " · load more" : "");
+            }
+
+            if (SelectedProvider is IStreamingSearchProvider streaming)
+                // WhenAny continuations run off the UI thread, so marshal each page back before
+                // touching the bound collection/observables.
+                await streaming.SearchAsync(query,
+                    async page => await Dispatcher.UIThread.InvokeAsync(() => AddPage(page)), ct);
+            else
+                AddPage(await SelectedProvider.SearchAsync(query, ct));
+
+            if (!ct.IsCancellationRequested)
+                Status = $"{total} result(s) in {SelectedProvider.DisplayName} · {SelectedKind}"
+                         + (hasMore ? " · load more" : "");
+        }
+        catch (OperationCanceledException)
+        {
+            // Superseded by a newer search — let that one own the UI state.
         }
         catch (Exception ex)
         {
@@ -143,7 +176,9 @@ public partial class MainViewModel : ObservableObject
         }
         finally
         {
-            IsBusy = false;
+            // A superseded run must not clear the spinner the newer run just turned on.
+            if (!ct.IsCancellationRequested)
+                IsBusy = false;
         }
     }
 

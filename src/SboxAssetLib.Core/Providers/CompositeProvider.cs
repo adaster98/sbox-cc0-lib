@@ -7,7 +7,7 @@ namespace SboxAssetLib.Core.Providers;
 /// the results. Detail/resolve are never routed through here — the UI keeps each result's owning
 /// provider (via <see cref="AssetSummary.ProviderId"/>) and calls that one directly.
 /// </summary>
-public sealed class CompositeProvider : IAssetProvider
+public sealed class CompositeProvider : IAssetProvider, IStreamingSearchProvider
 {
     private readonly IReadOnlyList<IAssetProvider> _providers;
 
@@ -36,6 +36,28 @@ public sealed class CompositeProvider : IAssetProvider
             HasMore = pages.Any(p => p.HasMore),
             Total = pages.Sum(p => p.Total ?? p.Items.Count),
         };
+    }
+
+    /// <summary>
+    /// Streaming variant: fan out to every applicable provider and surface each page as it finishes
+    /// so the UI shows fast sources immediately and slow ones backfill. <see cref="SafeSearchAsync"/>
+    /// keeps one failing source from blanking the whole search.
+    /// </summary>
+    public async Task SearchAsync(AssetQuery query, Func<SearchPage, Task> onPage, CancellationToken ct = default)
+    {
+        var kind = query.Kind ?? AssetKind.Texture;
+        var pending = _providers
+            .Where(p => p.SupportedKinds.Contains(kind))
+            .Select(p => SafeSearchAsync(p, query, ct))
+            .ToList();
+
+        while (pending.Count > 0)
+        {
+            var done = await Task.WhenAny(pending).ConfigureAwait(false);
+            pending.Remove(done);
+            ct.ThrowIfCancellationRequested();
+            await onPage(done.Result).ConfigureAwait(false);
+        }
     }
 
     // Routed by the UI to the originating provider, so these are never expected to run.

@@ -2,11 +2,16 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:vm="using:SboxAssetLib.App.ViewModels"
         xmlns:prov="using:SboxAssetLib.Core.Providers"
+        xmlns:conv="using:SboxAssetLib.App.Converters"
         xmlns:sys="using:System"
         x:Class="SboxAssetLib.App.Views.MainWindow"
         x:DataType="vm:MainViewModel"
         Title="s&amp;box Asset Library"
         Width="1280" Height="820" MinWidth="900" MinHeight="600">
+
+    <Window.Resources>
+        <conv:WidthToColumnsConverter x:Key="WidthToColumns" CellWidth="186" />
+    </Window.Resources>
 
     <Window.Styles>
         <!-- PBR channel badge -->
@@ -35,17 +40,20 @@
             <Setter Property="FontSize" Value="11" />
             <Setter Property="Foreground" Value="#CCC" />
         </Style>
+        <!-- Cards stretch to fill their UniformGrid cell (responsive width) rather than a fixed 180. -->
         <Style Selector="Border.card">
-            <Setter Property="Width" Value="180" />
+            <Setter Property="HorizontalAlignment" Value="Stretch" />
             <Setter Property="Margin" Value="3" />
             <Setter Property="CornerRadius" Value="6" />
             <Setter Property="Background" Value="#1E1E1E" />
         </Style>
-        <!-- Remove the ListBoxItem container chrome/padding so cards sit flush in the grid. -->
+        <!-- Remove the ListBoxItem container chrome/padding and let it stretch so cards fill the cell. -->
         <Style Selector="ListBox.gallery ListBoxItem">
             <Setter Property="Padding" Value="0" />
             <Setter Property="Margin" Value="0" />
             <Setter Property="CornerRadius" Value="6" />
+            <Setter Property="HorizontalAlignment" Value="Stretch" />
+            <Setter Property="HorizontalContentAlignment" Value="Stretch" />
         </Style>
     </Window.Styles>
 
@@ -85,7 +93,10 @@
                          ScrollViewer.HorizontalScrollBarVisibility="Disabled">
                     <ListBox.ItemsPanel>
                         <ItemsPanelTemplate>
-                            <WrapPanel />
+                            <!-- Column count tracks the available width; cards stretch to fill the row so
+                                 there's never a leftover side gap, and snap to a new column when one fits. -->
+                            <UniformGrid Columns="{Binding $parent[ListBox].Bounds.Width,
+                                                   Converter={StaticResource WidthToColumns}}" />
                         </ItemsPanelTemplate>
                     </ListBox.ItemsPanel>
                     <ListBox.ItemTemplate>
@@ -93,12 +104,14 @@
                             <Border Classes="card" ClipToBounds="True">
                                 <StackPanel>
                                     <Border CornerRadius="6,6,0,0" ClipToBounds="True" Height="160" Background="#111">
-                                        <Image Source="{Binding Thumbnail}" Stretch="UniformToFill"
+                                        <Image Source="{Binding Thumbnail}" Stretch="Uniform"
                                                HorizontalAlignment="Stretch" VerticalAlignment="Stretch" />
                                     </Border>
                                     <StackPanel Margin="6,5" Spacing="3">
                                         <TextBlock Text="{Binding Name}" FontWeight="SemiBold"
                                                    TextTrimming="CharacterEllipsis" />
+                                        <TextBlock Text="{Binding ProviderName}" Foreground="#888"
+                                                   FontSize="10" TextTrimming="CharacterEllipsis" Margin="0,-2,0,0" />
                                         <ItemsControl ItemsSource="{Binding Badges}">
                                             <ItemsControl.ItemsPanel>
                                                 <ItemsPanelTemplate>
@@ -134,9 +147,12 @@
                                HorizontalAlignment="Center" IsVisible="{Binding !HasSelection}" />
 
                     <ScrollViewer IsVisible="{Binding HasSelection}">
-                        <StackPanel Spacing="10">
-                            <Border CornerRadius="6" ClipToBounds="True" Height="220" Background="#111">
-                                <Image Source="{Binding Selected.Thumbnail}" Stretch="UniformToFill" />
+                        <!-- Right margin keeps content clear of the overlay scrollbar so it never
+                             sits on top of the text/tags, collapsed or expanded (hover) state. -->
+                        <StackPanel Spacing="10" Margin="0,0,16,0">
+                            <Border x:Name="PreviewImage" CornerRadius="6" ClipToBounds="True" Background="#111"
+                                    HorizontalAlignment="Stretch" Height="{Binding #PreviewImage.Bounds.Width}">
+                                <Image Source="{Binding Selected.Thumbnail}" Stretch="Uniform" />
                             </Border>
                             <TextBlock Text="{Binding Selected.Name}" FontSize="18" FontWeight="Bold" TextWrapping="Wrap" />
                             <StackPanel Orientation="Horizontal" Spacing="6">

@@ -20,8 +20,10 @@ the editor is running through Steam Proton.
 |----------|--------|-------|
 | **Poly Haven** | ✅ Working | Textures, models, and HDRIs at all supported resolutions. |
 | **ambientCG** | ✅ Working | Material textures at all supported resolutions. |
-| cgbookcase | ⏳ Planned | Metadata support exists, but downloads are not wired into the app yet. |
-| sharetextures | ⏳ Planned | Not wired into the app yet. |
+| **CC0 Textures** | ✅ Working | 4K material texture archives. |
+| **TextureCan** | ✅ Working | Material texture archives and model archives. |
+| cgbookcase | ⏳ Planned | Metadata support exists, but they have some weird redirect based download which is currently preventing use. |
+| sharetextures | ❌ No | Their TOS prevents automating downloads, so I will clone their library at some point. |
 
 ## How Importing Works
 

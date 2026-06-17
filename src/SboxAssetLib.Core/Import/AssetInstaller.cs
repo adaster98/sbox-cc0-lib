@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using System.IO.Compression;
 using SboxAssetLib.Core.Download;
 using SboxAssetLib.Core.Model;
 using SboxAssetLib.Core.Providers;
@@ -47,6 +48,8 @@ public sealed record InstalledAsset
 /// </summary>
 public sealed class AssetInstaller
 {
+    private static readonly string[] ImageExtensions = [".png", ".jpg", ".jpeg", ".tga", ".exr", ".bmp"];
+
     private readonly DownloadManager _downloader;
 
     public AssetInstaller(DownloadManager downloader) => _downloader = downloader;
@@ -136,12 +139,16 @@ public sealed class AssetInstaller
         string id, string relDir, string destDir, IReadOnlyList<FetchedFile> fetched,
         FormatPrefs prefs, List<string> written, CancellationToken ct)
     {
-        var mesh = fetched.First(x => x.File.Role == DownloadRole.Mesh);
+        var modelFiles = fetched.ToList();
+        foreach (var archive in fetched.Where(x => x.File.Role == DownloadRole.Archive))
+            modelFiles.AddRange(ExtractModelArchive(archive, relDir, destDir, prefs, written));
+
+        var mesh = modelFiles.First(x => x.File.Role == DownloadRole.Mesh);
         var meshRel = Rel(relDir, mesh.File.FileName);
 
         // Build a material from the mesh's dependency textures so it isn't grey on import.
         var depMaps = new Dictionary<MapType, string>();
-        foreach (var dep in PickMapSources(fetched.Where(x => x.File.Role == DownloadRole.Dependency)))
+        foreach (var dep in PickMapSources(modelFiles.Where(x => x.File.Role == DownloadRole.Dependency)))
             depMaps[GetMap(dep)] = NormalizeFetchedMap(dep, relDir, destDir, written);
 
         string? materialRel = null;
@@ -158,6 +165,97 @@ public sealed class AssetInstaller
         var primary = $"{relDir}/{id}.vmdl";
         AddWritten(written, primary);
         return primary;
+    }
+
+    private static IReadOnlyList<FetchedFile> ExtractModelArchive(
+        FetchedFile archive, string relDir, string destDir, FormatPrefs prefs, List<string> written)
+    {
+        var extractRoot = Path.Combine(destDir, "_model");
+        ExtractZipSafe(archive.LocalPath, extractRoot);
+
+        File.Delete(archive.LocalPath);
+        written.Remove(Rel(relDir, archive.File.FileName));
+
+        var extracted = Directory.EnumerateFiles(extractRoot, "*", SearchOption.AllDirectories).ToList();
+        foreach (var file in extracted)
+            AddWritten(written, RelFromPath(relDir, destDir, file));
+
+        var meshPath = PickMesh(extracted, prefs.ModelFormats)
+                       ?? throw new InvalidDataException($"No supported mesh found in {archive.File.FileName}.");
+        var result = new List<FetchedFile>
+        {
+            new(new DownloadFile
+            {
+                Url = archive.File.Url,
+                FileName = Path.GetRelativePath(destDir, meshPath).Replace('\\', '/'),
+                Role = DownloadRole.Mesh,
+            }, meshPath),
+        };
+
+        foreach (var file in extracted.Where(f => !string.Equals(f, meshPath, StringComparison.Ordinal)))
+        {
+            result.Add(new FetchedFile(new DownloadFile
+            {
+                Url = archive.File.Url,
+                FileName = Path.GetRelativePath(destDir, file).Replace('\\', '/'),
+                Role = DownloadRole.Dependency,
+                Map = ImageExtensions.Contains(Path.GetExtension(file).ToLowerInvariant())
+                    ? MapClassifier.Classify(Path.GetFileNameWithoutExtension(file))
+                    : MapType.None,
+            }, file));
+        }
+
+        return result;
+    }
+
+    private static string? PickMesh(IReadOnlyList<string> files, IReadOnlyList<string> formatPrefs)
+    {
+        var prefs = formatPrefs
+            .Select((fmt, i) => (Ext: "." + fmt.TrimStart('.').ToLowerInvariant(), Index: i))
+            .ToDictionary(x => x.Ext, x => x.Index, StringComparer.OrdinalIgnoreCase);
+
+        return files
+            .Where(f => prefs.ContainsKey(Path.GetExtension(f).ToLowerInvariant()))
+            .OrderBy(f => prefs[Path.GetExtension(f).ToLowerInvariant()])
+            .ThenBy(LodRank)
+            .ThenBy(f => Path.GetFileName(f).Length)
+            .FirstOrDefault();
+    }
+
+    private static int LodRank(string path)
+    {
+        var name = Path.GetFileNameWithoutExtension(path).ToLowerInvariant();
+        if (name.Contains("lod0")) return 0;
+        if (!name.Contains("lod")) return 1;
+        if (name.Contains("lod1")) return 2;
+        if (name.Contains("lod2")) return 3;
+        if (name.Contains("lod3")) return 4;
+        return 5;
+    }
+
+    private static void ExtractZipSafe(string zipPath, string destination)
+    {
+        if (Directory.Exists(destination))
+            Directory.Delete(destination, recursive: true);
+        Directory.CreateDirectory(destination);
+        var root = Path.GetFullPath(destination);
+        if (!root.EndsWith(Path.DirectorySeparatorChar))
+            root += Path.DirectorySeparatorChar;
+
+        using var archive = ZipFile.OpenRead(zipPath);
+        foreach (var entry in archive.Entries)
+        {
+            var path = Path.GetFullPath(Path.Combine(destination, entry.FullName));
+            if (!path.StartsWith(root, StringComparison.Ordinal))
+                throw new InvalidDataException($"Archive entry escapes extraction directory: {entry.FullName}");
+            if (entry.FullName.EndsWith("/", StringComparison.Ordinal))
+            {
+                Directory.CreateDirectory(path);
+                continue;
+            }
+            Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+            entry.ExtractToFile(path, overwrite: true);
+        }
     }
 
     private static string Rel(string relDir, string fileName) => $"{relDir}/{fileName.Replace('\\', '/')}";
