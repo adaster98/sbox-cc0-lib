@@ -13,9 +13,9 @@ namespace SboxAssetLib.Plugin;
 /// <summary>
 /// Dockable editor panel that lists the assets this project had imported by the standalone
 /// Asset Library app (read from the project's <c>library.json</c> manifest), with a search box
-/// and a model/texture filter. Each cell is draggable straight into the scene using the same
-/// drag payload (<see cref="DragAssetData"/>) the native asset/cloud browser uses, so models
-/// spawn and materials apply exactly as if dragged from the built-in browser.
+/// and a model/texture filter, shown as a reflowing grid of thumbnail previews. Each cell is
+/// draggable straight into the scene using the same payload the native asset/cloud browser uses
+/// (<c>DragData.Text</c> = asset path), so models spawn and materials apply as if dragged from it.
 ///
 /// Lives under <c>Editor/</c> because it uses editor-only APIs (Widget, AssetSystem, Drag).
 /// </summary>
@@ -31,9 +31,13 @@ public sealed class AssetLibraryPanel : Widget, AssetSystem.IEventListener
 	private readonly Label _empty;
 	private readonly List<(Button Button, AssetFilter Filter)> _filterButtons = new();
 
+	private const float GridSpacing = 6f;
+
 	private AssetFilter _filter = AssetFilter.All;
 	private string _searchText = "";
 	private List<ManifestEntry> _entries = new();
+	private List<ManifestEntry> _visible = new();
+	private int _columns = -1;
 
 	public AssetLibraryPanel( Widget parent ) : base( parent, false )
 	{
@@ -131,56 +135,100 @@ public sealed class AssetLibraryPanel : Widget, AssetSystem.IEventListener
 
 	private void RebuildList()
 	{
-		// Rebuild by reassigning the scroll canvas — avoids stale widget references.
-		var canvas = new Widget( _scroll, false );
-		canvas.Layout = Layout.Column();
-		canvas.Layout.Spacing = 2;
-
-		var any = false;
-		foreach ( var entry in FilteredEntries() )
-		{
-			canvas.Layout.Add( new AssetCell( canvas, entry ) );
-			any = true;
-		}
-		canvas.Layout.AddStretchCell();
-
-		_scroll.Canvas = canvas;
+		_visible = FilteredEntries().ToList();
 
 		// Show the placeholder whenever nothing is listed, wording it for "none imported" vs "no matches".
-		_empty.Visible = !any;
-		_scroll.Visible = any;
+		_empty.Visible = _visible.Count == 0;
+		_scroll.Visible = _visible.Count > 0;
 		_empty.Text = _entries.Count == 0
 			? "No imported assets yet.\nUse the desktop app to import models or textures into this project."
 			: "No matches.";
+
+		_columns = -1;     // force a fresh grid even when the column count is unchanged
+		Relayout();
+	}
+
+	/// <summary>How many fixed-width cells fit across the current width.</summary>
+	private int ComputeColumns()
+	{
+		var width = _scroll.Width;
+		if ( width <= 1f )
+			width = Width;
+		// Leave room for the scrollbar so the last column never clips.
+		return Math.Max( 1, (int)((width - 16f) / (AssetCell.CellWidth + GridSpacing)) );
+	}
+
+	/// <summary>Lay the visible cells out in a left-packed grid of thumbnail previews.</summary>
+	private void Relayout()
+	{
+		var columns = ComputeColumns();
+		_columns = columns;
+
+		var canvas = new Widget( _scroll, false );
+		var grid = Layout.Grid();
+		grid.HorizontalSpacing = GridSpacing;
+		grid.VerticalSpacing = GridSpacing;
+		grid.Margin = 4;
+		canvas.Layout = grid;
+
+		for ( var i = 0; i < _visible.Count; i++ )
+			grid.AddCell( i % columns, i / columns, new AssetCell( canvas, _visible[i] ) );
+
+		// A trailing stretch column absorbs the slack so the fixed-size cells stay left-packed.
+		if ( _visible.Count > 0 )
+		{
+			var stretch = new float[columns + 1];
+			stretch[columns] = 1f;
+			grid.SetColumnStretch( stretch );
+		}
+
+		_scroll.Canvas = canvas;
+	}
+
+	protected override void OnResize()
+	{
+		base.OnResize();
+		if ( _visible.Count > 0 && ComputeColumns() != _columns )
+			Relayout();
 	}
 
 	// AssetSystem listeners are auto-registered for widgets.
 	void AssetSystem.IEventListener.OnAssetSystemChanges() => Reload();
 	void AssetSystem.IEventListener.OnAssetThumbGenerated( Asset asset ) => Update();
 
-	// ---- one asset row: draggable, self-painted thumbnail + name ----
+	// ---- one asset tile: a draggable, self-painted thumbnail preview + name + type ----
 
 	private sealed class AssetCell : Widget
 	{
-		private static readonly Color RowColor = new( 0.17f, 0.18f, 0.22f, 1f );
-		private static readonly Color RowHoverColor = new( 0.23f, 0.25f, 0.30f, 1f );
-		private static readonly Color TextColor = new( 0.92f, 0.92f, 0.92f, 1f );
-		private static readonly Color IconColor = new( 0.55f, 0.55f, 0.60f, 1f );
+		public const float CellWidth = 104f;
+		private const float Padding = 4f;
+		private const float ThumbSize = CellWidth - Padding * 2f;   // 96px square preview
+		private const float NameHeight = 16f;
+		private const float TypeHeight = 14f;
+		public const float CellHeight = Padding + ThumbSize + 2f + NameHeight + TypeHeight + Padding;
+
+		private static readonly Color HoverColor = new( 0.23f, 0.25f, 0.30f, 1f );
+		private static readonly Color ThumbBackColor = new( 0.10f, 0.10f, 0.12f, 1f );
+		private static readonly Color NameColor = new( 0.92f, 0.92f, 0.92f, 1f );
+		private static readonly Color TypeColor = new( 0.55f, 0.55f, 0.60f, 1f );
 
 		private readonly ManifestEntry _entry;
+		private readonly string _typeLabel;
 		private Asset? _asset;
 		private Pixmap? _thumb;
 
 		public AssetCell( Widget parent, ManifestEntry entry ) : base( parent, false )
 		{
 			_entry = entry;
-			FixedHeight = 56;
+			FixedWidth = CellWidth;
+			FixedHeight = CellHeight;
 			IsDraggable = true;
 			Cursor = CursorShape.Finger;
-			ToolTip = entry.PrimaryAsset;
+			ToolTip = entry.Name;
 
 			_asset = AssetSystem.FindByPath( entry.PrimaryAsset );
 			_thumb = _asset?.GetAssetThumb( true );
+			_typeLabel = _asset?.AssetType?.FriendlyName ?? (entry.IsModel ? "Model" : "Material");
 		}
 
 		protected override void OnDragStart()
@@ -204,25 +252,33 @@ public sealed class AssetLibraryPanel : Widget, AssetSystem.IEventListener
 			_thumb ??= _asset?.GetAssetThumb( false );
 
 			Paint.Antialiasing = true;
-			Paint.SetBrushAndPen( IsUnderMouse ? RowHoverColor : RowColor );
-			Paint.DrawRect( LocalRect, 4f );
 
-			var thumbRect = new Rect( LocalRect.Left + 4f, LocalRect.Top + 4f, 48f, 48f );
+			if ( IsUnderMouse )
+			{
+				Paint.SetBrushAndPen( HoverColor );
+				Paint.DrawRect( LocalRect, 4f );
+			}
+
+			var thumbRect = new Rect( LocalRect.Left + Padding, LocalRect.Top + Padding, ThumbSize, ThumbSize );
 			if ( _thumb is not null )
 			{
 				Paint.Draw( thumbRect, _thumb, 1f, 4f );
 			}
 			else
 			{
-				Paint.Pen = IconColor;
-				Paint.DrawIcon( thumbRect, _entry.IsModel ? "view_in_ar" : "image", 26f, TextFlag.Center );
+				Paint.SetBrushAndPen( ThumbBackColor );
+				Paint.DrawRect( thumbRect, 4f );
+				Paint.Pen = TypeColor;
+				Paint.DrawIcon( thumbRect, _entry.IsModel ? "view_in_ar" : "image", 36f, TextFlag.Center );
 			}
 
-			var textRect = new Rect(
-				thumbRect.Right + 8f, LocalRect.Top,
-				LocalRect.Width - (thumbRect.Right + 8f) - 8f, LocalRect.Height );
-			Paint.Pen = TextColor;
-			Paint.DrawText( textRect, _entry.Name, TextFlag.LeftCenter );
+			var nameRect = new Rect( LocalRect.Left + 1f, thumbRect.Bottom + 2f, CellWidth - 2f, NameHeight );
+			Paint.Pen = NameColor;
+			Paint.DrawText( nameRect, _entry.Name, TextFlag.Center );
+
+			var typeRect = new Rect( LocalRect.Left + 1f, nameRect.Bottom, CellWidth - 2f, TypeHeight );
+			Paint.Pen = TypeColor;
+			Paint.DrawText( typeRect, _typeLabel, TextFlag.Center );
 		}
 
 		protected override void OnMouseEnter() => Update();
