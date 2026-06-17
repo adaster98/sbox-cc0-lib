@@ -165,6 +165,23 @@ public static class AssetLibBridge
 			var req = JsonSerializer.Deserialize<RequestDto>( pending.Json, JsonOpts )
 			          ?? throw new Exception( "empty request" );
 
+			// Register + compile the source dependencies before the primary asset, so its children
+			// and dependencies already exist and are known to the AssetSystem when it compiles.
+			// Otherwise the engine leaves the parent referencing missing children (materials: red
+			// checkers) or out-of-date/"stopped existing" dependencies (models: missing mesh), and
+			// recompiles on demand forever until a manual editor save or restart. Order matters:
+			// textures feed materials, and materials + meshes feed the model.
+			for ( var stage = 0; stage <= MaxDependencyStage; stage++ )
+			{
+				foreach ( var dep in req.Files )
+				{
+					if ( string.Equals( dep, req.PrimaryAsset, StringComparison.OrdinalIgnoreCase ) )
+						continue;
+					if ( DependencyStage( dep ) == stage )
+						CompileAsset( dep );
+				}
+			}
+
 			var compiled = CompileAsset( req.PrimaryAsset );
 			if ( req.SpawnInScene && string.Equals( req.Kind, "Model", StringComparison.OrdinalIgnoreCase ) )
 				AssetLibScene.SpawnModel( compiled ?? req.PrimaryAsset );
@@ -190,6 +207,22 @@ public static class AssetLibBridge
 	{
 		try { return Project.Current?.Config?.Title; }
 		catch { return null; }
+	}
+
+	private static readonly string[] TextureExtensions = { ".png", ".jpg", ".jpeg", ".tga", ".exr", ".bmp" };
+	private static readonly string[] MeshExtensions = { ".fbx", ".obj", ".gltf", ".glb", ".dmx" };
+
+	private const int MaxDependencyStage = 2;
+
+	// Compile order for a request's source files: textures (0) feed materials, then meshes (1) and
+	// materials (2) feed the primary model. Anything else returns -1 and is skipped here.
+	private static int DependencyStage( string path )
+	{
+		var ext = Path.GetExtension( path ).ToLowerInvariant();
+		if ( Array.IndexOf( TextureExtensions, ext ) >= 0 ) return 0;
+		if ( Array.IndexOf( MeshExtensions, ext ) >= 0 ) return 1;
+		if ( ext == ".vmat" ) return 2;
+		return -1;
 	}
 
 	/// <summary>Register and compile the newly-written asset, returning its resource path.</summary>
@@ -247,6 +280,7 @@ public static class AssetLibBridge
 		public string RequestId { get; set; } = "";
 		public string PrimaryAsset { get; set; } = "";
 		public string Kind { get; set; } = "";
+		public List<string> Files { get; set; } = new();
 		public bool SpawnInScene { get; set; }
 	}
 

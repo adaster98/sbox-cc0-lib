@@ -57,6 +57,15 @@ public sealed record ImportRequest
     /// <summary>"Texture" or "Model".</summary>
     public required string Kind { get; init; }
 
+    /// <summary>
+    /// All addon-relative files written for this asset (source textures, mesh, material).
+    /// The bridge registers + compiles the source textures <em>before</em> the primary asset so a
+    /// material's generated child vtex exist on first compile. Without this the bridge compiles the
+    /// <c>.vmat</c> before its texture children are known to the AssetSystem, leaving the material
+    /// with "missing children" — red checkers until a manual editor save, plus on-demand recompile spam.
+    /// </summary>
+    public IReadOnlyList<string> Files { get; init; } = [];
+
     /// <summary>For models: spawn a GameObject in the open scene and frame it.</summary>
     public bool SpawnInScene { get; init; }
 }

@@ -329,6 +329,7 @@ public partial class MainViewModel : ObservableObject
             RequestId = Guid.NewGuid().ToString("N"),
             PrimaryAsset = installed.PrimaryAsset,
             Kind = installed.Kind.ToString(),
+            Files = installed.Files,
             SpawnInScene = installed.Kind == AssetKind.Model,
         });
         Status = result.Ok

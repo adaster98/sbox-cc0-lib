@@ -37,6 +37,7 @@ public sealed class AssetLibraryPanel : Widget, AssetSystem.IEventListener
 	private string _searchText = "";
 	private List<ManifestEntry> _entries = new();
 	private List<ManifestEntry> _visible = new();
+	private readonly List<AssetCell> _cells = new();
 	private int _columns = -1;
 
 	public AssetLibraryPanel( Widget parent ) : base( parent, false )
@@ -171,8 +172,13 @@ public sealed class AssetLibraryPanel : Widget, AssetSystem.IEventListener
 		grid.Margin = 4;
 		canvas.Layout = grid;
 
+		_cells.Clear();
 		for ( var i = 0; i < _visible.Count; i++ )
-			grid.AddCell( i % columns, i / columns, new AssetCell( canvas, _visible[i] ) );
+		{
+			var cell = new AssetCell( canvas, _visible[i] );
+			_cells.Add( cell );
+			grid.AddCell( i % columns, i / columns, cell );
+		}
 
 		// A trailing stretch column absorbs the slack so the fixed-size cells stay left-packed.
 		if ( _visible.Count > 0 )
@@ -194,7 +200,14 @@ public sealed class AssetLibraryPanel : Widget, AssetSystem.IEventListener
 
 	// AssetSystem listeners are auto-registered for widgets.
 	void AssetSystem.IEventListener.OnAssetSystemChanges() => Reload();
-	void AssetSystem.IEventListener.OnAssetThumbGenerated( Asset asset ) => Update();
+
+	// A freshly-imported asset's thumbnail is rendered in the background after compile. Route the
+	// event to the owning cell so its preview appears without the user pressing the refresh button.
+	void AssetSystem.IEventListener.OnAssetThumbGenerated( Asset asset )
+	{
+		foreach ( var cell in _cells )
+			cell.OnThumbGenerated( asset );
+	}
 
 	// ---- one asset tile: a draggable, self-painted thumbnail preview + name + type ----
 
@@ -279,6 +292,21 @@ public sealed class AssetLibraryPanel : Widget, AssetSystem.IEventListener
 			var typeRect = new Rect( LocalRect.Left + 1f, nameRect.Bottom, CellWidth - 2f, TypeHeight );
 			Paint.Pen = TypeColor;
 			Paint.DrawText( typeRect, _typeLabel, TextFlag.Center );
+		}
+
+		/// <summary>Pick up this cell's preview once its thumbnail finishes generating in the background.</summary>
+		public void OnThumbGenerated( Asset asset )
+		{
+			_asset ??= AssetSystem.FindByPath( _entry.PrimaryAsset );
+			if ( _asset is null || asset is null || _asset != asset )
+				return;
+
+			var thumb = _asset.GetAssetThumb( true );
+			if ( thumb is not null )
+			{
+				_thumb = thumb;
+				Update();
+			}
 		}
 
 		protected override void OnMouseEnter() => Update();
