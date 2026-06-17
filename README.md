@@ -2,10 +2,9 @@
 
 Browse free CC0 textures, models, and HDRIs from places like Poly Haven and ambientCG, then import
 them into **s&box** as ready-to-compile Source 2 `.vmat` and `.vmdl` assets. You can also download
-them into a reusable library that you mount across projects.
+them into a reusable library that you mount across projects. Supports Windows and Linux (Proton Aware)
 
-The desktop app is **Proton-aware** on Linux, so it can find and talk to the s&box editor even when
-the editor is running through Steam Proton.
+<img width="1165" height="993" alt="image" src="https://github.com/user-attachments/assets/62e0a248-db84-40d3-b8b2-8c42a59098e6" />
 
 ## What It Does
 
@@ -36,7 +35,10 @@ the editor is running through Steam Proton.
 - **Proton support**: on Linux, the app can locate the bridge inside the s&box Proton prefix and
   translate Wine paths back to native Linux paths automatically.
 
-## Build and Run
+## Download
+https://github.com/adaster98/sbox-cc0-lib/releases
+
+## Or Compile yourself
 
 Requires the **.NET 10 SDK**.
 
@@ -50,16 +52,13 @@ downloads under the usual XDG data and cache directories.
 
 ## Installing the s&box Editor Library
 
-1. Copy `plugin/` into a library folder inside your s&box project, for example
-   `Libraries/adaster98.sbox-asset-lib/`.
-2. Keep the bridge code under that library's `Editor/` folder. It uses editor-only APIs and should
-   not live under `Code/`.
-3. In the editor, run **Editor → Asset Library → Start Bridge**.
+1. Make `Libraries/adaster98.sbox-asset-lib/` in your s&box project, then copy the contents of `plugin/` into that folder.
+2. Restart S&box Editor
+3. At the top of the editor, choose **Asset Library → Start Bridge**.
 4. Start the desktop app. When the status bar shows the current project, use **Import to s&box**.
 
 If the editor is running through Proton, the app will still discover the bridge automatically.
 
 ## License
-
-Tooling: your choice. Assets fetched through this app are **CC0** from their respective providers.
+Assets fetched through this app are **CC0** from their respective providers.
 The generated library manifest keeps the source and license details with each imported asset.
