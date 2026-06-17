@@ -28,11 +28,23 @@ public static class VmatWriter
             || maps.ContainsKey(MapType.Metalness)
             || maps.ContainsKey(MapType.Specular);
 
+        var usesAlphaTest = maps.ContainsKey(MapType.Opacity);
+
         // ---- PBR feature toggles ----
         if (usesSpecular)
         {
             sb.AppendLine("\t//---- PBR ----");
             sb.AppendLine("\tF_SPECULAR 1");
+            sb.AppendLine();
+        }
+
+        // ---- Alpha test ---- (cutout for foliage; render backfaces so thin geometry shows both sides.
+        // F_ALPHA_TEST and F_TRANSLUCENT are mutually exclusive in complex.shader.)
+        if (usesAlphaTest)
+        {
+            sb.AppendLine("\t//---- Alpha Test ----");
+            sb.AppendLine("\tF_ALPHA_TEST 1");
+            sb.AppendLine("\tF_RENDER_BACKFACES 1");
             sb.AppendLine();
         }
 
@@ -43,6 +55,16 @@ public static class VmatWriter
         if (maps.TryGetValue(MapType.Albedo, out var color))
             sb.AppendLine($"\tTextureColor \"{color}\"");
         sb.AppendLine();
+
+        // ---- Translucency / Alpha mask ---- (feeds the F_ALPHA_TEST cutout above)
+        if (maps.TryGetValue(MapType.Opacity, out var opacity))
+        {
+            sb.AppendLine("\t//---- Translucency ----");
+            sb.AppendLine("\tg_flAlphaTestReference \"0.500\"");
+            sb.AppendLine("\tg_flAntiAliasedEdgeStrength \"1.000\"");
+            sb.AppendLine($"\tTextureTranslucency \"{opacity}\"");
+            sb.AppendLine();
+        }
 
         // ---- Normal ---- (orientation is decided by which source was downloaded; see NormalConvention)
         if (maps.TryGetValue(MapType.Normal, out var nrm))
