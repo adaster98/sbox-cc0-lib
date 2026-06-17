@@ -167,7 +167,7 @@ public static class AssetLibBridge
 
 			var compiled = CompileAsset( req.PrimaryAsset );
 			if ( req.SpawnInScene && string.Equals( req.Kind, "Model", StringComparison.OrdinalIgnoreCase ) )
-				SpawnInScene( compiled ?? req.PrimaryAsset );
+				AssetLibScene.SpawnModel( compiled ?? req.PrimaryAsset );
 
 			result = new ResultDto { RequestId = pending.Id, Ok = true, CompiledAsset = compiled };
 		}
@@ -219,37 +219,6 @@ public static class AssetLibBridge
 		{
 			Log.Warning( $"[AssetLibBridge] compile nudge failed (asset may still auto-compile): {ex.Message}" );
 			return addonRelativePath;
-		}
-	}
-
-	/// <summary>Spawn a GameObject with the compiled model into the active scene.</summary>
-	private static void SpawnInScene( string vmdlPath )
-	{
-		try
-		{
-			var session = SceneEditorSession.Active;
-			var scene = session?.Scene;
-			if ( session is null || scene is null )
-			{
-				Log.Warning( "[AssetLibBridge] no active scene to spawn into." );
-				return;
-			}
-
-			using ( session.UndoScope( "Import Asset Library Model" ).WithGameObjectCreations().Push() )
-			{
-				var go = scene.CreateObject( true );
-				go.Name = Path.GetFileNameWithoutExtension( vmdlPath );
-
-				var renderer = go.AddComponent<ModelRenderer>();
-				renderer.Model = Model.Load( vmdlPath.Replace( '\\', '/' ) );
-
-				EditorScene.Selection.Clear();
-				EditorScene.Selection.Add( go );
-			}
-		}
-		catch ( Exception ex )
-		{
-			Log.Warning( $"[AssetLibBridge] spawn failed: {ex.Message}" );
 		}
 	}
 

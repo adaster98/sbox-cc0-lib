@@ -12,6 +12,11 @@ them into a reusable library that you mount across projects. Supports Windows an
 - Preview categories, tags, and available resolutions before downloading.
 - Import straight into the active s&box project through the editor bridge.
 - Save assets into a reusable library with generated Source 2 materials and models.
+- See what's already installed at a glance: cards are bordered **green** (in your library) or
+  **blue** (in the connected s&box project).
+- Browse what you imported from inside the editor: a dockable **Asset Library** panel lists the
+  project's imported models and textures with search and a model/texture filter, ready to drag
+  into the scene.
 
 ## Providers
 
@@ -58,6 +63,13 @@ downloads under the usual XDG data and cache directories.
 4. Start the desktop app. When the status bar shows the current project, use **Import to s&box**.
 
 If the editor is running through Proton, the app will still discover the bridge automatically.
+
+### Browsing imported assets in the editor
+
+Open **View → Asset Library** in the s&box editor to dock a panel listing the models and textures
+this app has imported into the current project. Search or filter by models/textures, then drag an
+entry straight into the scene — models spawn as objects, materials drop onto surfaces — or
+right‑click an entry for **Spawn in scene** / **Show in Asset Browser**.
 
 ## License
 Assets fetched through this app are **CC0** from their respective providers.
