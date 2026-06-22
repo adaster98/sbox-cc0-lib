@@ -37,7 +37,7 @@ them into a reusable library that you mount across projects. Supports Windows an
   generated materials so s&box can compile it. For modular kits, enable **Generate separate kit
   models** to also create one filtered `.vmdl` per named mesh component.
 - **s&box import**: the editor bridge writes project status to disk, the app installs files into
-  the active project, and the editor picks them up to compile and optionally spawn them.
+  the active project, and the editor picks them up to compile for use in the Asset Browser.
 - **Proton support**: on Linux, the app can locate the bridge inside the s&box Proton prefix and
   translate Wine paths back to native Linux paths automatically.
 

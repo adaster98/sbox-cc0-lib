@@ -344,7 +344,6 @@ public partial class MainViewModel : ObservableObject
             PrimaryAsset = installed.PrimaryAsset,
             Kind = installed.Kind.ToString(),
             Files = installed.Files,
-            SpawnInScene = installed.Kind == AssetKind.Model,
         });
         Status = result.Ok
             ? $"Imported {installed.Id} into s&box ({connection.Status.ProjectName})."
