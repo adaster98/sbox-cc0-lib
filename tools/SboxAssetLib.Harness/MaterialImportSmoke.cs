@@ -34,7 +34,15 @@ internal static class MaterialImportSmoke
               ],
               "textures": [ { "source": 0 }, { "source": 1 } ],
               "materials": [
-                { "name": "Mat/A", "pbrMetallicRoughness": { "baseColorTexture": { "index": 0 } } },
+                {
+                  "name": "Mat/A",
+                  "pbrMetallicRoughness": {
+                    "baseColorTexture": {
+                      "index": 0,
+                      "extensions": { "KHR_texture_transform": { "scale": [ 2, 3 ] } }
+                    }
+                  }
+                },
                 { "name": "Mat:A", "pbrMetallicRoughness": { "baseColorTexture": { "index": 1 } } },
                 { "name": "Empty" }
               ]
@@ -67,6 +75,9 @@ internal static class MaterialImportSmoke
 
         Require(File.Exists(Path.Combine(modelDir, "Mat_A.vmat")), "first sanitized VMAT was not generated");
         Require(File.Exists(Path.Combine(modelDir, "Mat_A_2.vmat")), "colliding VMAT name was not made unique");
+        var scaled = await File.ReadAllTextAsync(Path.Combine(modelDir, "Mat_A.vmat"));
+        Require(scaled.Contains("g_vTexCoordScale \"[2.0 3.0]\"", StringComparison.Ordinal),
+            "glTF texture scale was not written to the generated VMAT");
         var fallback = await File.ReadAllTextAsync(Path.Combine(modelDir, "Empty.vmat"));
         Require(!fallback.Contains("TextureColor", StringComparison.Ordinal), "empty slot VMAT should be a plain fallback");
         var vmdl = await File.ReadAllTextAsync(Path.Combine(modelDir, "synthetic.vmdl"));
@@ -130,6 +141,28 @@ internal static class MaterialImportSmoke
         {
             Fetched(Path.GetFileName(fbx), DownloadRole.Mesh, fbx),
         };
+        var metadataPath = Path.Combine(modelDir, "fence.material-metadata.gltf");
+        await File.WriteAllTextAsync(metadataPath, """
+            {
+              "asset": { "version": "2.0" },
+              "images": [ { "uri": "textures/wire.png" } ],
+              "textures": [ { "source": 0 } ],
+              "materials": [
+                { "name": "modular_chainlink_fence_posts" },
+                {
+                  "name": "modular_chainlink_fence_wire",
+                  "pbrMetallicRoughness": {
+                    "baseColorTexture": {
+                      "index": 0,
+                      "extensions": { "KHR_texture_transform": { "scale": [ 4, 4 ] } }
+                    }
+                  }
+                }
+              ]
+            }
+            """);
+        fetched.Add(Fetched(
+            "modular_chainlink_fence.material-metadata.gltf", DownloadRole.ModelMetadata, metadataPath));
         fetched.AddRange(Directory.EnumerateFiles(Path.Combine(modelDir, "textures"))
             .Where(path => !path.EndsWith("_c", StringComparison.OrdinalIgnoreCase))
             .Select(path => Fetched(
@@ -148,11 +181,17 @@ internal static class MaterialImportSmoke
             "wire material did not retain its own texture set");
         Require(!posts.Contains("F_ALPHA_TEST", StringComparison.Ordinal) && wire.Contains("F_ALPHA_TEST", StringComparison.Ordinal),
             "alpha testing was not isolated to the wire material");
+        Require(!posts.Contains("g_vTexCoordScale", StringComparison.Ordinal)
+                && wire.Contains("g_vTexCoordScale \"[4.0 4.0]\"", StringComparison.Ordinal),
+            "metadata texture scale was not isolated to the wire material");
         Require(vmdl.Contains("from = \"modular_chainlink_fence_posts\"", StringComparison.Ordinal)
                 && vmdl.Contains("from = \"modular_chainlink_fence_wire\"", StringComparison.Ordinal),
             "fence material remaps are incomplete");
         Require(vmdl.Contains("use_global_default = false", StringComparison.Ordinal),
             "fence VMDL still globally replaces materials");
+        Require(!File.Exists(metadataPath)
+                && !written.Any(path => path.EndsWith("material-metadata.gltf", StringComparison.Ordinal)),
+            "temporary model metadata was retained as an installed asset");
     }
 
     private static void VerifyVmdlCompatibility()
@@ -169,6 +208,8 @@ internal static class MaterialImportSmoke
         Require(slots.Count == 3, $"{format} material count was not preserved");
         Require(slots[0].Name == "Mat/A" && slots[0].Textures.Single().Map == MapType.Albedo,
             $"{format} base-color binding was not read");
+        Require(slots[0].TextureScale == new ModelTextureScale(2, 3),
+            $"{format} texture scale was not read");
         Require(slots[2].Name == "Empty" && slots[2].Textures.Count == 0,
             $"{format} empty material slot was not preserved");
     }

@@ -234,7 +234,26 @@ public sealed class PolyHavenProvider : IAssetProvider
                 result.Add(LeafToFile(dep.Value, dep.Name, DownloadRole.Dependency, MapType.None));
         }
 
+        // FBX drops Blender's material-node UV transforms. Keep the tiny glTF document as
+        // metadata so the importer can recover per-material texture tiling without using its mesh.
+        if (fmt is not ("gltf" or "glb")
+            && TryGetModelLeaf(files, "gltf", res, out var metadataLeaf))
+        {
+            result.Add(LeafToFile(
+                metadataLeaf, $"{id}.material-metadata.gltf", DownloadRole.ModelMetadata, MapType.None));
+        }
+
         return result;
+    }
+
+    private static bool TryGetModelLeaf(JsonElement files, string format, string resolution, out JsonElement leaf)
+    {
+        leaf = default;
+        if (!files.TryGetProperty(format, out var formatNode)
+            || !TryPickResolution(formatNode, resolution, out var resolutionNode))
+            return false;
+        leaf = resolutionNode.TryGetProperty(format, out var nested) ? nested : resolutionNode;
+        return leaf.ValueKind == JsonValueKind.Object && leaf.TryGetProperty("url", out _);
     }
 
     // ---- /files helpers ---------------------------------------------------

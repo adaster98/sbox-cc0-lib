@@ -145,8 +145,17 @@ public sealed class AssetInstaller
 
         var mesh = modelFiles.First(x => x.File.Role == DownloadRole.Mesh);
         var meshRel = Rel(relDir, mesh.File.FileName);
-        var materialSlots = ModelMaterialReader.Read(mesh.LocalPath);
+        var materialSlots = MergeMaterialMetadata(
+            ModelMaterialReader.Read(mesh.LocalPath),
+            modelFiles.Where(x => x.File.Role == DownloadRole.ModelMetadata)
+                .SelectMany(file => ModelMaterialReader.Read(file.LocalPath)));
         var dependencies = modelFiles.Where(x => x.File.Role == DownloadRole.Dependency).ToList();
+
+        foreach (var metadata in modelFiles.Where(x => x.File.Role == DownloadRole.ModelMetadata))
+        {
+            File.Delete(metadata.LocalPath);
+            written.Remove(Rel(relDir, metadata.File.FileName));
+        }
 
         if (materialSlots.Count > 1)
         {
@@ -168,7 +177,7 @@ public sealed class AssetInstaller
         string? materialRel = null;
         if (depMaps.Count > 0)
         {
-            var vmat = VmatWriter.Write(depMaps, prefs.Normal);
+            var vmat = VmatWriter.Write(depMaps, prefs.Normal, materialSlots.SingleOrDefault()?.TextureScale);
             await File.WriteAllTextAsync(Path.Combine(destDir, $"{id}.vmat"), vmat, ct).ConfigureAwait(false);
             materialRel = $"{relDir}/{id}.vmat";
             AddWritten(written, materialRel);
@@ -221,13 +230,26 @@ public sealed class AssetInstaller
                 maps[GetMap(mapFile)] = NormalizeFetchedMap(mapFile, relDir, destDir, written);
 
             var fileName = fileNames[slotIndex];
-            var vmat = VmatWriter.Write(maps, prefs.Normal);
+            var vmat = VmatWriter.Write(maps, prefs.Normal, slots[slotIndex].TextureScale);
             await File.WriteAllTextAsync(Path.Combine(destDir, fileName), vmat, ct).ConfigureAwait(false);
             var materialRel = $"{relDir}/{fileName}";
             AddWritten(written, materialRel);
             remaps.Add(new MaterialRemap(slots[slotIndex].Name, materialRel));
         }
         return remaps;
+    }
+
+    private static IReadOnlyList<ModelMaterialSlot> MergeMaterialMetadata(
+        IReadOnlyList<ModelMaterialSlot> meshSlots,
+        IEnumerable<ModelMaterialSlot> metadataSlots)
+    {
+        var metadata = metadataSlots
+            .Where(slot => slot.TextureScale is not null)
+            .GroupBy(slot => slot.Name, StringComparer.Ordinal)
+            .ToDictionary(group => group.Key, group => group.First().TextureScale!, StringComparer.Ordinal);
+        return meshSlots.Select(slot => metadata.TryGetValue(slot.Name, out var scale)
+            ? slot with { TextureScale = scale }
+            : slot).ToList();
     }
 
     private static FetchedFile? FindDependency(IReadOnlyList<FetchedFile> dependencies, string texturePath)

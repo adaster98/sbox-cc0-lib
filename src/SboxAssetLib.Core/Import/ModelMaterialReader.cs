@@ -6,10 +6,19 @@ using SboxAssetLib.Core.Model;
 namespace SboxAssetLib.Core.Import;
 
 /// <summary>A texture reference attached to a source model material.</summary>
-public sealed record ModelMaterialTexture(string Path, MapType Map);
+public sealed record ModelMaterialTexture(string Path, MapType Map, ModelTextureScale? Scale = null);
+
+/// <summary>UV tiling shared by all textures in one source material.</summary>
+public sealed record ModelTextureScale(double U, double V)
+{
+    public static ModelTextureScale Identity { get; } = new(1.0, 1.0);
+}
 
 /// <summary>A named source material slot and the textures assigned to it by the mesh.</summary>
-public sealed record ModelMaterialSlot(string Name, IReadOnlyList<ModelMaterialTexture> Textures);
+public sealed record ModelMaterialSlot(
+    string Name,
+    IReadOnlyList<ModelMaterialTexture> Textures,
+    ModelTextureScale? TextureScale = null);
 
 /// <summary>Reads the material metadata needed to preserve source-model material slots.</summary>
 public static partial class ModelMaterialReader
@@ -64,7 +73,7 @@ public static partial class ModelMaterialReader
             AddGltfTexture(material, "occlusionTexture", MapType.AmbientOcclusion, textureSources, images, bindings);
             AddGltfTexture(material, "emissiveTexture", MapType.Emission, textureSources, images, bindings);
 
-            result.Add(new ModelMaterialSlot(name, bindings));
+            result.Add(new ModelMaterialSlot(name, bindings, FindCommonScale(bindings)));
             materialIndex++;
         }
         return result;
@@ -102,8 +111,32 @@ public static partial class ModelMaterialReader
         var imageIndex = textureSources[textureIndex];
         if (imageIndex < 0 || imageIndex >= images.Count || string.IsNullOrWhiteSpace(images[imageIndex]))
             return;
-        bindings.Add(new ModelMaterialTexture(images[imageIndex]!, map));
+        bindings.Add(new ModelMaterialTexture(images[imageIndex]!, map, ReadGltfScale(textureInfo)));
     }
+
+    private static ModelTextureScale? ReadGltfScale(JsonElement textureInfo)
+    {
+        if (!textureInfo.TryGetProperty("extensions", out var extensions)
+            || !extensions.TryGetProperty("KHR_texture_transform", out var transform)
+            || !transform.TryGetProperty("scale", out var scale)
+            || scale.ValueKind != JsonValueKind.Array
+            || scale.GetArrayLength() != 2)
+            return null;
+        return new ModelTextureScale(scale[0].GetDouble(), scale[1].GetDouble());
+    }
+
+    private static ModelTextureScale? FindCommonScale(IReadOnlyList<ModelMaterialTexture> textures)
+    {
+        if (textures.Count == 0)
+            return null;
+        var first = textures[0].Scale ?? ModelTextureScale.Identity;
+        if (textures.Any(texture => !SameScale(first, texture.Scale ?? ModelTextureScale.Identity)))
+            return null;
+        return SameScale(first, ModelTextureScale.Identity) ? null : first;
+    }
+
+    private static bool SameScale(ModelTextureScale left, ModelTextureScale right) =>
+        Math.Abs(left.U - right.U) < 0.00001 && Math.Abs(left.V - right.V) < 0.00001;
 
     private static string? DecodeUri(string? uri)
     {

@@ -88,6 +88,7 @@ public enum DownloadRole
     Mesh, // a model mesh (fbx/gltf)
     Archive, // a zip that must be expanded then classified
     Dependency, // a file referenced by a mesh/archive (e.g. a texture in a gltf)
+    ModelMetadata, // portable material metadata accompanying a mesh in another format
 }
 
 /// <summary>A concrete, resolvable file to download for a chosen asset+resolution.</summary>
