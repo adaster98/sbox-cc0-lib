@@ -3,6 +3,9 @@ using SboxAssetLib.Core.Model;
 
 namespace SboxAssetLib.Core.Import;
 
+/// <summary>Maps one source mesh material name to an addon material.</summary>
+public sealed record MaterialRemap(string From, string To);
+
 /// <summary>
 /// Generates a Source 2 / s&amp;box <c>.vmdl</c> (ModelDoc) around an imported mesh source.
 /// The shape mirrors ModelDoc-authored prop models so the editor opens it in-place.
@@ -18,14 +21,17 @@ public static class VmdlWriter
     /// <param name="materialRelPath">Addon-relative material path used as the global default material.</param>
     /// <param name="modelScale">Global ModelDoc scale. s&amp;box units are inch-based, so centimeter sources use 0.3937.</param>
     /// <param name="header">Override the kv3 header if a newer editor-authored header is needed.</param>
+    /// <param name="materialRemaps">Per-slot replacements. When present, the global default is disabled.</param>
     public static string Write(
         string name,
         string meshRelPath,
         string? materialRelPath = null,
         double modelScale = FormatPrefs.DefaultModelImportScale,
-        string? header = null)
+        string? header = null,
+        IReadOnlyList<MaterialRemap>? materialRemaps = null)
     {
         var material = string.IsNullOrWhiteSpace(materialRelPath) ? "materials/default.vmat" : materialRelPath;
+        var remaps = materialRemaps ?? [];
         var scale = modelScale.ToString("0.0###", System.Globalization.CultureInfo.InvariantCulture);
 
         var sb = new StringBuilder();
@@ -42,8 +48,24 @@ public static class VmdlWriter
         sb.AppendLine("\t\t\t\t[");
         sb.AppendLine("\t\t\t\t\t{");
         sb.AppendLine("\t\t\t\t\t\t_class = \"DefaultMaterialGroup\"");
-        sb.AppendLine("\t\t\t\t\t\tremaps = [  ]");
-        sb.AppendLine("\t\t\t\t\t\tuse_global_default = true");
+        if (remaps.Count == 0)
+        {
+            sb.AppendLine("\t\t\t\t\t\tremaps = [  ]");
+        }
+        else
+        {
+            sb.AppendLine("\t\t\t\t\t\tremaps = ");
+            sb.AppendLine("\t\t\t\t\t\t[");
+            foreach (var remap in remaps)
+            {
+                sb.AppendLine("\t\t\t\t\t\t\t{");
+                sb.AppendLine($"\t\t\t\t\t\t\t\tfrom = \"{Escape(remap.From)}\"");
+                sb.AppendLine($"\t\t\t\t\t\t\t\tto = \"{Escape(remap.To)}\"");
+                sb.AppendLine("\t\t\t\t\t\t\t},");
+            }
+            sb.AppendLine("\t\t\t\t\t\t]");
+        }
+        sb.AppendLine($"\t\t\t\t\t\tuse_global_default = {(remaps.Count == 0 ? "true" : "false")}");
         sb.AppendLine($"\t\t\t\t\t\tglobal_default_material = \"{material}\"");
         sb.AppendLine("\t\t\t\t\t},");
         sb.AppendLine("\t\t\t\t]");
@@ -107,4 +129,6 @@ public static class VmdlWriter
         sb.AppendLine("}");
         return sb.ToString();
     }
+
+    private static string Escape(string value) => value.Replace("\\", "\\\\").Replace("\"", "\\\"");
 }

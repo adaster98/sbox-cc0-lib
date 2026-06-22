@@ -11,6 +11,12 @@ using SboxAssetLib.Core.Providers.TextureCan;
 //   search -> detail (PBR maps) -> install (resolve + download + write .vmat/.vmdl + manifest)
 // into a mountable library, then dump the resulting folder tree + manifest.
 
+if (args.FirstOrDefault() == "--material-smoke")
+{
+    await MaterialImportSmoke.RunAsync(args.Skip(1).FirstOrDefault());
+    return;
+}
+
 var query = args.Length > 0 ? args[0] : "rock";
 var libDir = Path.Combine(Path.GetTempPath(), "sbox-asset-lib-test", "MyLibrary");
 

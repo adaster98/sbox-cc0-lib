@@ -135,7 +135,7 @@ public sealed class AssetInstaller
         return primary;
     }
 
-    private static async Task<string> WriteModelAsync(
+    internal static async Task<string> WriteModelAsync(
         string id, string relDir, string destDir, IReadOnlyList<FetchedFile> fetched,
         FormatPrefs prefs, List<string> written, CancellationToken ct)
     {
@@ -145,10 +145,24 @@ public sealed class AssetInstaller
 
         var mesh = modelFiles.First(x => x.File.Role == DownloadRole.Mesh);
         var meshRel = Rel(relDir, mesh.File.FileName);
+        var materialSlots = ModelMaterialReader.Read(mesh.LocalPath);
+        var dependencies = modelFiles.Where(x => x.File.Role == DownloadRole.Dependency).ToList();
+
+        if (materialSlots.Count > 1)
+        {
+            var remaps = await WriteModelMaterialsAsync(
+                id, relDir, destDir, materialSlots, dependencies, prefs, written, ct).ConfigureAwait(false);
+            var remappedVmdl = VmdlWriter.Write(
+                id, meshRel, modelScale: prefs.ModelImportScale, materialRemaps: remaps);
+            await File.WriteAllTextAsync(Path.Combine(destDir, $"{id}.vmdl"), remappedVmdl, ct).ConfigureAwait(false);
+            var remappedPrimary = $"{relDir}/{id}.vmdl";
+            AddWritten(written, remappedPrimary);
+            return remappedPrimary;
+        }
 
         // Build a material from the mesh's dependency textures so it isn't grey on import.
         var depMaps = new Dictionary<MapType, string>();
-        foreach (var dep in PickMapSources(modelFiles.Where(x => x.File.Role == DownloadRole.Dependency)))
+        foreach (var dep in PickMapSources(dependencies))
             depMaps[GetMap(dep)] = NormalizeFetchedMap(dep, relDir, destDir, written);
 
         string? materialRel = null;
@@ -166,6 +180,115 @@ public sealed class AssetInstaller
         AddWritten(written, primary);
         return primary;
     }
+
+    private static async Task<IReadOnlyList<MaterialRemap>> WriteModelMaterialsAsync(
+        string id, string relDir, string destDir,
+        IReadOnlyList<ModelMaterialSlot> slots, IReadOnlyList<FetchedFile> dependencies,
+        FormatPrefs prefs, List<string> written, CancellationToken ct)
+    {
+        var slotFiles = slots.Select(_ => new List<FetchedFile>()).ToList();
+        var assigned = new HashSet<string>(StringComparer.Ordinal);
+
+        for (var slotIndex = 0; slotIndex < slots.Count; slotIndex++)
+        {
+            foreach (var binding in slots[slotIndex].Textures)
+            {
+                var dependency = FindDependency(dependencies, binding.Path);
+                if (dependency is null)
+                    continue;
+                var map = GetMap(dependency);
+                if (map == MapType.None)
+                    map = binding.Map;
+                slotFiles[slotIndex].Add(WithMap(dependency, map));
+                assigned.Add(dependency.LocalPath);
+            }
+        }
+
+        // Some exporters omit texture connections but retain matching material/texture stems.
+        foreach (var dependency in dependencies.Where(file => !assigned.Contains(file.LocalPath)))
+        {
+            var slotIndex = FindSlotByName(slots, dependency.File.FileName);
+            if (slotIndex >= 0)
+                slotFiles[slotIndex].Add(dependency);
+        }
+
+        var fileNames = MakeMaterialFileNames(id, slots);
+        var remaps = new List<MaterialRemap>(slots.Count);
+        for (var slotIndex = 0; slotIndex < slots.Count; slotIndex++)
+        {
+            var maps = new Dictionary<MapType, string>();
+            foreach (var mapFile in PickMapSources(slotFiles[slotIndex]))
+                maps[GetMap(mapFile)] = NormalizeFetchedMap(mapFile, relDir, destDir, written);
+
+            var fileName = fileNames[slotIndex];
+            var vmat = VmatWriter.Write(maps, prefs.Normal);
+            await File.WriteAllTextAsync(Path.Combine(destDir, fileName), vmat, ct).ConfigureAwait(false);
+            var materialRel = $"{relDir}/{fileName}";
+            AddWritten(written, materialRel);
+            remaps.Add(new MaterialRemap(slots[slotIndex].Name, materialRel));
+        }
+        return remaps;
+    }
+
+    private static FetchedFile? FindDependency(IReadOnlyList<FetchedFile> dependencies, string texturePath)
+    {
+        var reference = NormalizeModelPath(texturePath);
+        var referenceName = Path.GetFileName(reference);
+        return dependencies
+            .OrderByDescending(file => NormalizeModelPath(file.File.FileName).Equals(reference, StringComparison.OrdinalIgnoreCase))
+            .ThenByDescending(file => NormalizeModelPath(file.File.FileName).EndsWith('/' + reference, StringComparison.OrdinalIgnoreCase))
+            .FirstOrDefault(file =>
+                NormalizeModelPath(file.File.FileName).Equals(reference, StringComparison.OrdinalIgnoreCase)
+                || NormalizeModelPath(file.File.FileName).EndsWith('/' + reference, StringComparison.OrdinalIgnoreCase)
+                || Path.GetFileName(file.File.FileName).Equals(referenceName, StringComparison.OrdinalIgnoreCase));
+    }
+
+    private static int FindSlotByName(IReadOnlyList<ModelMaterialSlot> slots, string texturePath)
+    {
+        var textureKey = MatchKey(Path.GetFileNameWithoutExtension(texturePath));
+        return slots
+            .Select((slot, index) => (Index: index, Key: MatchKey(slot.Name)))
+            .Where(slot => slot.Key.Length > 0 && textureKey.Contains(slot.Key, StringComparison.Ordinal))
+            .OrderByDescending(slot => slot.Key.Length)
+            .Select(slot => slot.Index)
+            .DefaultIfEmpty(-1)
+            .First();
+    }
+
+    private static IReadOnlyList<string> MakeMaterialFileNames(string id, IReadOnlyList<ModelMaterialSlot> slots)
+    {
+        var used = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var result = new List<string>(slots.Count);
+        for (var index = 0; index < slots.Count; index++)
+        {
+            var stem = SanitizeFileStem(slots[index].Name);
+            if (stem.Length == 0)
+                stem = $"{SanitizeFileStem(id)}_material_{index + 1}";
+            var unique = stem;
+            for (var suffix = 2; !used.Add(unique); suffix++)
+                unique = $"{stem}_{suffix}";
+            result.Add($"{unique}.vmat");
+        }
+        return result;
+    }
+
+    private static string SanitizeFileStem(string value)
+    {
+        var chars = value.Select(c => char.IsLetterOrDigit(c) || c is '_' or '-' ? c : '_').ToArray();
+        return new string(chars).Trim('_');
+    }
+
+    private static string MatchKey(string value) => new(value
+        .Where(char.IsLetterOrDigit)
+        .Select(char.ToLowerInvariant)
+        .ToArray());
+
+    private static string NormalizeModelPath(string value) => Uri.UnescapeDataString(value)
+        .Replace('\\', '/')
+        .TrimStart('.', '/');
+
+    private static FetchedFile WithMap(FetchedFile file, MapType map) =>
+        new(file.File with { Map = map }, file.LocalPath);
 
     private static IReadOnlyList<FetchedFile> ExtractModelArchive(
         FetchedFile archive, string relDir, string destDir, FormatPrefs prefs, List<string> written)
