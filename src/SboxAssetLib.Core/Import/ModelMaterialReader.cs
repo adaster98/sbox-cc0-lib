@@ -46,6 +46,27 @@ public static partial class ModelMaterialReader
         }
     }
 
+    /// <summary>Returns named mesh nodes that ModelDoc can select through its import filter.</summary>
+    public static IReadOnlyList<string> ReadComponents(string meshPath)
+    {
+        try
+        {
+            return Path.GetExtension(meshPath).ToLowerInvariant() switch
+            {
+                ".fbx" => ReadFbxComponents(meshPath),
+                ".gltf" => ReadGltfComponents(File.ReadAllBytes(meshPath)),
+                ".glb" => ReadGltfComponents(ReadGlbJson(meshPath)),
+                _ => [],
+            };
+        }
+        catch (Exception ex) when (ex is IOException or InvalidDataException or JsonException
+                                       or DecoderFallbackException or InvalidOperationException
+                                       or ArgumentException or FormatException or OverflowException)
+        {
+            return [];
+        }
+    }
+
     private static IReadOnlyList<ModelMaterialSlot> ReadGltf(byte[] json)
     {
         using var document = JsonDocument.Parse(json);
@@ -77,6 +98,20 @@ public static partial class ModelMaterialReader
             materialIndex++;
         }
         return result;
+    }
+
+    private static IReadOnlyList<string> ReadGltfComponents(byte[] json)
+    {
+        using var document = JsonDocument.Parse(json);
+        if (!document.RootElement.TryGetProperty("nodes", out var nodes) || nodes.ValueKind != JsonValueKind.Array)
+            return [];
+        return nodes.EnumerateArray()
+            .Where(node => node.TryGetProperty("mesh", out _))
+            .Select((node, index) => node.TryGetProperty("name", out var name) && !string.IsNullOrWhiteSpace(name.GetString())
+                ? name.GetString()!
+                : $"component_{index + 1}")
+            .Distinct(StringComparer.Ordinal)
+            .ToList();
     }
 
     private static IReadOnlyList<string?> ReadGltfImages(JsonElement root)
@@ -146,6 +181,9 @@ public static partial class ModelMaterialReader
     }
 
     private static IReadOnlyList<ModelMaterialSlot> ReadGlb(string path)
+        => ReadGltf(ReadGlbJson(path));
+
+    private static byte[] ReadGlbJson(string path)
     {
         using var stream = File.OpenRead(path);
         using var reader = new BinaryReader(stream, Encoding.UTF8, leaveOpen: false);
@@ -160,9 +198,9 @@ public static partial class ModelMaterialReader
                 throw new InvalidDataException("Invalid GLB chunk length.");
             var content = reader.ReadBytes((int)length);
             if (type == 0x4E4F534A)
-                return ReadGltf(content);
+                return content;
         }
-        return [];
+        throw new InvalidDataException("GLB has no JSON chunk.");
     }
 
     private static IReadOnlyList<ModelMaterialSlot> ReadFbx(string path)
@@ -176,6 +214,9 @@ public static partial class ModelMaterialReader
     }
 
     private static IReadOnlyList<ModelMaterialSlot> ReadBinaryFbx(Stream stream)
+        => BuildFbxMaterials(ReadBinaryFbxNodes(stream));
+
+    private static IReadOnlyList<FbxNode> ReadBinaryFbxNodes(Stream stream)
     {
         using var reader = new BinaryReader(stream, Encoding.UTF8, leaveOpen: true);
         stream.Position = FbxMagic.Length;
@@ -188,7 +229,33 @@ public static partial class ModelMaterialReader
                 break;
             roots.Add(node);
         }
-        return BuildFbxMaterials(roots);
+        return roots;
+    }
+
+    private static IReadOnlyList<string> ReadFbxComponents(string path)
+    {
+        using var stream = File.OpenRead(path);
+        Span<byte> magic = stackalloc byte[FbxMagic.Length];
+        if (stream.Read(magic) != magic.Length)
+            return [];
+        if (!magic.SequenceEqual(FbxMagic))
+        {
+            var text = File.ReadAllText(path);
+            return AsciiModelRegex().Matches(text)
+                .Select(match => match.Groups["name"].Value)
+                .Distinct(StringComparer.Ordinal)
+                .ToList();
+        }
+
+        stream.Position = 0;
+        var roots = ReadBinaryFbxNodes(stream);
+        var objects = roots.FirstOrDefault(node => node.Name == "Objects")?.Children ?? [];
+        return objects
+            .Where(node => node.Name == "Model" && node.Properties.Count >= 3
+                                                 && string.Equals(node.Properties[2] as string, "Mesh", StringComparison.Ordinal))
+            .Select(node => CleanFbxName((string)node.Properties[1]!))
+            .Distinct(StringComparer.Ordinal)
+            .ToList();
     }
 
     private static FbxNode? ReadFbxNode(BinaryReader reader, uint version)
@@ -346,4 +413,7 @@ public static partial class ModelMaterialReader
 
     [GeneratedRegex("C:\\s*\"(?<kind>O[OP])\"\\s*,\\s*(?<source>-?\\d+)\\s*,\\s*(?<target>-?\\d+)(?:\\s*,\\s*\"(?<property>[^\"]*)\")?", RegexOptions.CultureInvariant)]
     private static partial Regex AsciiConnectionRegex();
+
+    [GeneratedRegex("Model:\\s*-?\\d+\\s*,\\s*\"Model::(?<name>[^\"]+)\"\\s*,\\s*\"Mesh\"", RegexOptions.CultureInvariant)]
+    private static partial Regex AsciiModelRegex();
 }

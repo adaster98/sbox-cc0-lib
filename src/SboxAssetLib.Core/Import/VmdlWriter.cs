@@ -22,16 +22,19 @@ public static class VmdlWriter
     /// <param name="modelScale">Global ModelDoc scale. s&amp;box units are inch-based, so centimeter sources use 0.3937.</param>
     /// <param name="header">Override the kv3 header if a newer editor-authored header is needed.</param>
     /// <param name="materialRemaps">Per-slot replacements. When present, the global default is disabled.</param>
+    /// <param name="includedComponents">Mesh components to include while excluding all others.</param>
     public static string Write(
         string name,
         string meshRelPath,
         string? materialRelPath = null,
         double modelScale = FormatPrefs.DefaultModelImportScale,
         string? header = null,
-        IReadOnlyList<MaterialRemap>? materialRemaps = null)
+        IReadOnlyList<MaterialRemap>? materialRemaps = null,
+        IReadOnlyList<string>? includedComponents = null)
     {
         var material = string.IsNullOrWhiteSpace(materialRelPath) ? "materials/default.vmat" : materialRelPath;
         var remaps = materialRemaps ?? [];
+        var components = includedComponents ?? [];
         var scale = modelScale.ToString("0.0###", System.Globalization.CultureInfo.InvariantCulture);
 
         var sb = new StringBuilder();
@@ -99,8 +102,19 @@ public static class VmdlWriter
         sb.AppendLine("\t\t\t\t\t\tparent_bone = \"\"");
         sb.AppendLine("\t\t\t\t\t\timport_filter = ");
         sb.AppendLine("\t\t\t\t\t\t{");
-        sb.AppendLine("\t\t\t\t\t\t\texclude_by_default = false");
-        sb.AppendLine("\t\t\t\t\t\t\texception_list = [  ]");
+        sb.AppendLine($"\t\t\t\t\t\t\texclude_by_default = {(components.Count > 0 ? "true" : "false")}");
+        if (components.Count == 0)
+        {
+            sb.AppendLine("\t\t\t\t\t\t\texception_list = [  ]");
+        }
+        else
+        {
+            sb.AppendLine("\t\t\t\t\t\t\texception_list = ");
+            sb.AppendLine("\t\t\t\t\t\t\t[");
+            foreach (var component in components)
+                sb.AppendLine($"\t\t\t\t\t\t\t\t\"{Escape(component)}\",");
+            sb.AppendLine("\t\t\t\t\t\t\t]");
+        }
         sb.AppendLine("\t\t\t\t\t\t}");
         sb.AppendLine("\t\t\t\t\t},");
         sb.AppendLine("\t\t\t\t]");

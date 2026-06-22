@@ -33,6 +33,12 @@ internal static class MaterialImportSmoke
                 { "uri": "textures/Mat_A_rough.png" }
               ],
               "textures": [ { "source": 0 }, { "source": 1 } ],
+              "meshes": [ {}, {} ],
+              "nodes": [
+                { "name": "Part/A", "mesh": 0 },
+                { "name": "Part:A", "mesh": 1 },
+                { "name": "Ignored Empty" }
+              ],
               "materials": [
                 {
                   "name": "Mat/A",
@@ -52,10 +58,12 @@ internal static class MaterialImportSmoke
         var gltf = Path.Combine(root, "synthetic.gltf");
         await File.WriteAllTextAsync(gltf, json);
         AssertSlots(ModelMaterialReader.Read(gltf), "glTF");
+        AssertComponents(ModelMaterialReader.ReadComponents(gltf), "glTF");
 
         var glb = Path.Combine(root, "synthetic.glb");
         await File.WriteAllBytesAsync(glb, MakeGlb(json));
         AssertSlots(ModelMaterialReader.Read(glb), "GLB");
+        AssertComponents(ModelMaterialReader.ReadComponents(glb), "GLB");
 
         var modelDir = Path.Combine(root, "synthetic-model");
         Directory.CreateDirectory(Path.Combine(modelDir, "textures"));
@@ -71,7 +79,8 @@ internal static class MaterialImportSmoke
         };
         var written = fetched.Select(file => $"models/test/synthetic/{file.File.FileName}").ToList();
         await AssetInstaller.WriteModelAsync(
-            "synthetic", "models/test/synthetic", modelDir, fetched, FormatPrefs.Default, written, default);
+            "synthetic", "models/test/synthetic", modelDir, fetched, FormatPrefs.Default, written, default,
+            importAsKit: true);
 
         Require(File.Exists(Path.Combine(modelDir, "Mat_A.vmat")), "first sanitized VMAT was not generated");
         Require(File.Exists(Path.Combine(modelDir, "Mat_A_2.vmat")), "colliding VMAT name was not made unique");
@@ -86,6 +95,15 @@ internal static class MaterialImportSmoke
         Require(vmdl.Contains("to = \"models/test/synthetic/Mat_A_2.vmat\"", StringComparison.Ordinal), "collision-safe remap is missing");
         Require(written.Count(path => path.EndsWith(".vmat", StringComparison.OrdinalIgnoreCase)) == 3,
             "generated VMATs were not all added to the written-file list");
+        Require(File.Exists(Path.Combine(modelDir, "Part_A.vmdl"))
+                && File.Exists(Path.Combine(modelDir, "Part_A_2.vmdl")),
+            "colliding kit component names were not written safely");
+        var componentVmdl = await File.ReadAllTextAsync(Path.Combine(modelDir, "Part_A.vmdl"));
+        Require(componentVmdl.Contains("exclude_by_default = true", StringComparison.Ordinal)
+                && componentVmdl.Contains("\"Part/A\"", StringComparison.Ordinal),
+            "kit VMDL does not isolate its source component");
+        Require(componentVmdl.Contains("from = \"Mat/A\"", StringComparison.Ordinal),
+            "kit VMDL did not retain material remaps");
 
         await VerifySingleMaterialImportAsync(root);
     }
@@ -136,6 +154,11 @@ internal static class MaterialImportSmoke
         Require(slots.Select(slot => slot.Name).SequenceEqual([
             "modular_chainlink_fence_posts", "modular_chainlink_fence_wire"]),
             $"binary FBX material names were not read in source order: [{string.Join(", ", slots.Select(slot => slot.Name))}]");
+        var components = ModelMaterialReader.ReadComponents(fbx);
+        Require(components.Count == 20
+                && components.Contains("modular_chainlink_fence_door_gate", StringComparer.Ordinal)
+                && components.Contains("modular_chainlink_fence_corner_inner", StringComparer.Ordinal),
+            $"binary FBX kit components were not recovered: [{string.Join(", ", components)}]");
 
         var fetched = new List<FetchedFile>
         {
@@ -170,7 +193,8 @@ internal static class MaterialImportSmoke
         var relDir = "models/misc/modular_chainlink_fence";
         var written = fetched.Select(file => $"{relDir}/{file.File.FileName}").ToList();
         await AssetInstaller.WriteModelAsync(
-            "modular_chainlink_fence", relDir, modelDir, fetched, FormatPrefs.Default, written, default);
+            "modular_chainlink_fence", relDir, modelDir, fetched, FormatPrefs.Default, written, default,
+            importAsKit: true);
 
         var posts = await File.ReadAllTextAsync(Path.Combine(modelDir, "modular_chainlink_fence_posts.vmat"));
         var wire = await File.ReadAllTextAsync(Path.Combine(modelDir, "modular_chainlink_fence_wire.vmat"));
@@ -192,6 +216,12 @@ internal static class MaterialImportSmoke
         Require(!File.Exists(metadataPath)
                 && !written.Any(path => path.EndsWith("material-metadata.gltf", StringComparison.Ordinal)),
             "temporary model metadata was retained as an installed asset");
+        Require(written.Count(path => path.EndsWith(".vmdl", StringComparison.OrdinalIgnoreCase)) == components.Count + 1,
+            "one VMDL was not generated for every fence component");
+        var gate = await File.ReadAllTextAsync(Path.Combine(modelDir, "modular_chainlink_fence_door_gate.vmdl"));
+        Require(gate.Contains("\"modular_chainlink_fence_door_gate\"", StringComparison.Ordinal)
+                && !gate.Contains("\"modular_chainlink_fence_corner_inner\"", StringComparison.Ordinal),
+            "fence component VMDL filter contains the wrong nodes");
     }
 
     private static void VerifyVmdlCompatibility()
@@ -212,6 +242,12 @@ internal static class MaterialImportSmoke
             $"{format} texture scale was not read");
         Require(slots[2].Name == "Empty" && slots[2].Textures.Count == 0,
             $"{format} empty material slot was not preserved");
+    }
+
+    private static void AssertComponents(IReadOnlyList<string> components, string format)
+    {
+        Require(components.SequenceEqual(["Part/A", "Part:A"]),
+            $"{format} mesh components were not preserved in source order");
     }
 
     private static FetchedFile Fetched(string fileName, DownloadRole role, string localPath) =>

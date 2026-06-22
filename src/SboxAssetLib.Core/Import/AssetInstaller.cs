@@ -17,6 +17,9 @@ public sealed record InstallOptions
 
     public FormatPrefs Prefs { get; init; } = FormatPrefs.Default;
 
+    /// <summary>Generate one filtered VMDL per named mesh component in addition to the full model.</summary>
+    public bool ImportAsKit { get; init; }
+
     /// <summary>Maintain a library.json manifest at the addon root (used by library mode).</summary>
     public bool WriteManifest { get; init; } = true;
 }
@@ -74,7 +77,8 @@ public sealed class AssetInstaller
         var written = fetched.Select(f => Rel(relDir, f.File.FileName)).ToList();
 
         string primary = s.Kind == AssetKind.Model
-            ? await WriteModelAsync(s.Id, relDir, destDir, fetched, opts.Prefs, written, ct).ConfigureAwait(false)
+            ? await WriteModelAsync(
+                s.Id, relDir, destDir, fetched, opts.Prefs, written, ct, opts.ImportAsKit).ConfigureAwait(false)
             : await WriteTextureAsync(s.Id, relDir, destDir, fetched, opts.Prefs, written, ct).ConfigureAwait(false);
 
         var installed = new InstalledAsset
@@ -137,7 +141,7 @@ public sealed class AssetInstaller
 
     internal static async Task<string> WriteModelAsync(
         string id, string relDir, string destDir, IReadOnlyList<FetchedFile> fetched,
-        FormatPrefs prefs, List<string> written, CancellationToken ct)
+        FormatPrefs prefs, List<string> written, CancellationToken ct, bool importAsKit = false)
     {
         var modelFiles = fetched.ToList();
         foreach (var archive in fetched.Where(x => x.File.Role == DownloadRole.Archive))
@@ -166,6 +170,9 @@ public sealed class AssetInstaller
             await File.WriteAllTextAsync(Path.Combine(destDir, $"{id}.vmdl"), remappedVmdl, ct).ConfigureAwait(false);
             var remappedPrimary = $"{relDir}/{id}.vmdl";
             AddWritten(written, remappedPrimary);
+            await WriteKitModelsAsync(
+                id, relDir, destDir, mesh, meshRel, null, remaps,
+                prefs.ModelImportScale, importAsKit, written, ct).ConfigureAwait(false);
             return remappedPrimary;
         }
 
@@ -187,7 +194,44 @@ public sealed class AssetInstaller
         await File.WriteAllTextAsync(Path.Combine(destDir, $"{id}.vmdl"), vmdl, ct).ConfigureAwait(false);
         var primary = $"{relDir}/{id}.vmdl";
         AddWritten(written, primary);
+        await WriteKitModelsAsync(
+            id, relDir, destDir, mesh, meshRel, materialRel, [],
+            prefs.ModelImportScale, importAsKit, written, ct).ConfigureAwait(false);
         return primary;
+    }
+
+    private static async Task WriteKitModelsAsync(
+        string id, string relDir, string destDir, FetchedFile mesh, string meshRel,
+        string? materialRel, IReadOnlyList<MaterialRemap> materialRemaps, double modelScale,
+        bool importAsKit, List<string> written, CancellationToken ct)
+    {
+        if (!importAsKit)
+            return;
+        var components = ModelMaterialReader.ReadComponents(mesh.LocalPath);
+        if (components.Count <= 1)
+            return;
+
+        var usedNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { $"{id}.vmdl" };
+        for (var index = 0; index < components.Count; index++)
+        {
+            var component = components[index];
+            var stem = SanitizeFileStem(component);
+            if (stem.Length == 0)
+                stem = $"{SanitizeFileStem(id)}_component_{index + 1}";
+            var fileName = $"{stem}.vmdl";
+            for (var suffix = 2; !usedNames.Add(fileName); suffix++)
+                fileName = $"{stem}_{suffix}.vmdl";
+
+            var vmdl = VmdlWriter.Write(
+                component,
+                meshRel,
+                materialRel,
+                modelScale,
+                materialRemaps: materialRemaps,
+                includedComponents: [component]);
+            await File.WriteAllTextAsync(Path.Combine(destDir, fileName), vmdl, ct).ConfigureAwait(false);
+            AddWritten(written, $"{relDir}/{fileName}");
+        }
     }
 
     private static async Task<IReadOnlyList<MaterialRemap>> WriteModelMaterialsAsync(

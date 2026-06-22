@@ -212,16 +212,17 @@ public static class AssetLibBridge
 	private static readonly string[] TextureExtensions = { ".png", ".jpg", ".jpeg", ".tga", ".exr", ".bmp" };
 	private static readonly string[] MeshExtensions = { ".fbx", ".obj", ".gltf", ".glb", ".dmx" };
 
-	private const int MaxDependencyStage = 2;
+	private const int MaxDependencyStage = 3;
 
-	// Compile order for a request's source files: textures (0) feed materials, then meshes (1) and
-	// materials (2) feed the primary model. Anything else returns -1 and is skipped here.
+	// Compile order for a request's source files: textures (0) feed materials, then meshes (1),
+	// materials (2), and secondary kit models (3) compile before the primary model.
 	private static int DependencyStage( string path )
 	{
 		var ext = Path.GetExtension( path ).ToLowerInvariant();
 		if ( Array.IndexOf( TextureExtensions, ext ) >= 0 ) return 0;
 		if ( Array.IndexOf( MeshExtensions, ext ) >= 0 ) return 1;
 		if ( ext == ".vmat" ) return 2;
+		if ( ext == ".vmdl" ) return 3;
 		return -1;
 	}
 

@@ -204,6 +204,11 @@
                                           SelectedItem="{Binding SelectedResolution}" HorizontalAlignment="Stretch" />
                             </Grid>
 
+                            <CheckBox Content="Generate separate kit models"
+                                      IsChecked="{Binding ImportAsKit}"
+                                      IsVisible="{Binding CanImportAsKit}"
+                                      ToolTip.Tip="Creates one filtered VMDL for each named mesh component, plus the full model." />
+
                             <TextBlock Text="Library folder" Foreground="#AAA" FontSize="12" />
                             <DockPanel>
                                 <Button DockPanel.Dock="Right" Content="…" Command="{Binding BrowseLibraryCommand}"

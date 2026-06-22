@@ -40,6 +40,7 @@ public partial class MainViewModel : ObservableObject
     [ObservableProperty] private double _progress;
     [ObservableProperty] private AssetCardViewModel? _selected;
     [ObservableProperty] private string? _selectedResolution;
+    [ObservableProperty] private bool _importAsKit;
     [ObservableProperty] private string _libraryPath;
     [ObservableProperty] private bool _bridgeConnected;
     [ObservableProperty] private string _bridgeStatus = "s&box: checking…";
@@ -64,6 +65,7 @@ public partial class MainViewModel : ObservableObject
     public ObservableCollection<string> Resolutions { get; } = [];
 
     public bool HasSelection => Selected is not null;
+    public bool CanImportAsKit => Selected?.Summary.Kind == AssetKind.Model;
 
     /// <summary>Set by the view: opens a native folder picker and returns the chosen path.</summary>
     public Func<Task<string?>>? PickFolder { get; set; }
@@ -71,6 +73,8 @@ public partial class MainViewModel : ObservableObject
     partial void OnSelectedChanged(AssetCardViewModel? value)
     {
         OnPropertyChanged(nameof(HasSelection));
+        OnPropertyChanged(nameof(CanImportAsKit));
+        ImportAsKit = false;
         if (value is not null)
             _ = LoadDetailAsync(value);
     }
@@ -282,7 +286,12 @@ public partial class MainViewModel : ObservableObject
         }
         var res = SelectedResolution ?? Selected.Detail.Resolutions.FirstOrDefault() ?? "2k";
         var installed = await InstallAsync(Selected.Detail, res,
-            new InstallOptions { AddonRoot = LibraryPath, Prefs = _svc.Settings.Prefs }, toLibrary: true);
+            new InstallOptions
+            {
+                AddonRoot = LibraryPath,
+                Prefs = _svc.Settings.Prefs,
+                ImportAsKit = ImportAsKit,
+            }, toLibrary: true);
         if (installed is not null)
         {
             _libraryInstalled.Add((installed.ProviderId, installed.Id));
@@ -314,7 +323,12 @@ public partial class MainViewModel : ObservableObject
 
         var res = SelectedResolution ?? Selected.Detail.Resolutions.FirstOrDefault() ?? "2k";
         var installed = await InstallAsync(Selected.Detail, res,
-            new InstallOptions { AddonRoot = connection.NativeContentPath!, Prefs = _svc.Settings.Prefs },
+            new InstallOptions
+            {
+                AddonRoot = connection.NativeContentPath!,
+                Prefs = _svc.Settings.Prefs,
+                ImportAsKit = ImportAsKit,
+            },
             toLibrary: false);
         if (installed is null)
             return;

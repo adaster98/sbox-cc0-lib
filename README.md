@@ -33,8 +33,9 @@ them into a reusable library that you mount across projects. Supports Windows an
 
 - **Textures**: the app downloads the available PBR maps, converts EXR material inputs to PNG when
   needed, and writes a Source 2 `.vmat` using `shaders/complex.shader`.
-- **Models**: the app downloads the mesh and textures, generates a `.vmdl`, and pairs it with a
-  generated material so s&box can compile it.
+- **Models**: the app downloads the mesh and textures, generates a `.vmdl`, and pairs it with
+  generated materials so s&box can compile it. For modular kits, enable **Generate separate kit
+  models** to also create one filtered `.vmdl` per named mesh component.
 - **s&box import**: the editor bridge writes project status to disk, the app installs files into
   the active project, and the editor picks them up to compile and optionally spawn them.
 - **Proton support**: on Linux, the app can locate the bridge inside the s&box Proton prefix and
